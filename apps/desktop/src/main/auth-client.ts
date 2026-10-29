@@ -1,6 +1,7 @@
 import { parseOperation, type Operation, type Result } from "../../../../packages/shared-types/auth";
 import { parseChat, type ChatEvent } from '../../../../packages/shared-types/chat';
 import { sse } from '../../../../packages/shared-types/sse';
+import { parseUpload, type UploadInput } from '../../../../packages/shared-types/search';
 
 export function serverURL(value: string | undefined, packaged: boolean) {
   const url = new URL(value || "http://127.0.0.1:3001");
@@ -26,6 +27,24 @@ export class AuthClient {
     return task.then(() => result);
   }
   cancelChat() { this.streamController?.abort(); }
+  importDocument(pick: () => Promise<UploadInput | undefined>): Promise<Result> {
+    let result!: Result;
+    const task = this.queue.then(async () => {
+      if (!this.credential) { result = { ok: false, status: 401, message: '로그인이 필요합니다.' }; return; }
+      try {
+        const input = await pick();
+        if (!input) { result = { ok: true, data: null }; return; }
+        parseUpload(input);
+        const response = await this.transport(new URL('/api/documents', this.url), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.credential}` },
+          body: JSON.stringify(input), signal: AbortSignal.timeout(60_000), redirect: 'error', cache: 'no-store' });
+        if (response.status === 401) this.credential = undefined;
+        if (!response.ok) { result = { ok: false, status: response.status, message: response.status === 401 ? '세션이 만료되었습니다.' : response.status === 403 ? '팀 문서 권한이 없습니다.' : response.status === 429 ? '문서를 처리 중입니다. 잠시 후 다시 시도하세요.' : '문서 등록에 실패했습니다. 형식·암호·텍스트·크기(최대 10MB)를 확인하세요.' }; return; }
+        result = await response.json() as Result;
+      } catch { result = { ok: false, status: 400, message: '문서를 읽거나 등록하지 못했습니다. 파일 크기와 서버 연결을 확인하세요.' }; }
+    });
+    this.queue = task.catch(() => {});
+    return task.then(() => result);
+  }
   async stream(raw: unknown, emit: (event: ChatEvent) => void): Promise<Result> {
     let input;
     try { input = parseChat(raw); } catch { return { ok: false, status: 400, message: '잘못된 채팅 요청입니다.' }; }
@@ -48,6 +67,7 @@ export class AuthClient {
         if (credential !== this.credential) throw new Error('Session changed');
         const event = rawEvent as ChatEvent;
         if (event.type === 'delta' && typeof event.text === 'string') emit(event);
+        else if (event.type === 'sources' && Array.isArray(event.citations) && event.citations.length <= 106) emit(event);
         else if (event.type === 'done') { emit(event); return { ok: true, data: null }; }
         else if (event.type === 'error') {
           if (event.status === 401) this.credential = undefined;

@@ -4,6 +4,7 @@ import { demoReply } from "./features/chat/demo";
 import type { ChatMessage, ChatStatus } from '../../../../packages/shared-types/chat';
 import type { User, Settings, ConversationMeta } from "../../../../packages/shared-types/auth";
 import { request } from "./api";
+import { Documents, Sources } from './Documents';
 
 const themes: {
   value: ThemePreference;
@@ -41,7 +42,9 @@ export default function App({ user, initial }: { user: User; initial: { settings
   const sending = useRef(false);
   const alive = useRef(true);
   const [activeId, setActiveId] = useState(conversations[0].id);
-  const [page, setPage] = useState<"chat" | "settings">("chat");
+  const [page, setPage] = useState<"chat" | "settings" | "documents">("chat");
+  const [webSearch, setWebSearch] = useState(false);
+  const [documentSearch, setDocumentSearch] = useState(false);
   const [draft, setDraft] = useState("");
   const [theme, setTheme] = useState<ThemePreference>(initial.settings.theme);
   const [version, setVersion] = useState("");
@@ -128,7 +131,8 @@ export default function App({ user, initial }: { user: User; initial: { settings
         { id: crypto.randomUUID(), role: 'user', text, model },
         { id: assistantId, role: 'assistant', text: '', model }] } : c));
       setDraft('');
-      const result = await window.desktop.streamChat({ id, text, model }, event => {
+      const result = await window.desktop.streamChat({ id, text, model, webSearch, documentSearch }, event => {
+        if (alive.current && event.type === 'sources') setConversations(items => items.map(c => c.id === id ? { ...c, messages: c.messages.map(m => m.id === assistantId ? { ...m, citations: event.citations } : m) } : c));
         if (alive.current && event.type === 'delta') setConversations(items => items.map(c => c.id === id ? {
           ...c, messages: c.messages.map(m => m.id === assistantId ? { ...m, text: m.text + event.text } : m),
         } : c));
@@ -201,6 +205,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
           >
             <span aria-hidden="true">▤</span> 채팅
           </button>
+          <button className={page === 'documents' ? 'nav-item selected' : 'nav-item'} aria-current={page === 'documents' ? 'page' : undefined} onClick={() => setPage('documents')}><span aria-hidden="true">⌕</span> 웹·파일 검색</button>
         </nav>
         <div className="history-label">
           내 대화 <span>{conversations.length}</span>
@@ -251,7 +256,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
       <main id="main" tabIndex={-1}>
         <header className="topbar">
           <div>
-            {page === "chat" ? "워크스페이스 / 채팅" : "워크스페이스 / 설정"}
+            {page === "chat" ? "워크스페이스 / 채팅" : page === 'documents' ? '워크스페이스 / 웹·파일 검색' : "워크스페이스 / 설정"}
           </div>
           <span className="demo-badge">
             <span className="status-dot" /> {demo ? 'DEMO' : 'AI'}
@@ -262,7 +267,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
             {error}
           </div>
         )}
-        {page === "chat" ? (
+        {page === 'documents' ? <Documents user={user} /> : page === "chat" ? (
           <section className="chat-page" aria-label="채팅 화면">
             <div className="chat-heading">
               <div>
@@ -351,7 +356,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
                             <span>{message.model === 'demo' ? '데모 응답' : `${status?.models.find(m => m.id === message.model)?.label ?? message.model} · 실제 AI 응답`}</span>
                           )}
                         </div>
-                        <p>{message.text || '응답 생성 중…'}</p>
+                        <Sources text={message.text || '응답 생성 중…'} citations={message.citations} />
                       </div>
                     </article>
                   ))}
@@ -360,6 +365,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
               )}
             </div>
             <div className="composer-wrap">
+              <fieldset className="search-options" disabled={busy || demo}><legend className="sr-only">답변 검색 도구</legend><label><input type="checkbox" checked={webSearch} onChange={e => setWebSearch(e.target.checked)} /> 웹 검색</label><label><input type="checkbox" checked={documentSearch} onChange={e => setDocumentSearch(e.target.checked)} /> 개인·팀 문서 검색</label><small>{demo ? '데모에서는 검색하지 않습니다.' : documentSearch ? '관련 문서 구간이 AI 제공업체로 전송됩니다.' : '필요한 검색 도구를 선택하세요.'}</small></fieldset>
               <form
                 className="composer"
                 onSubmit={(event) => {
@@ -468,13 +474,13 @@ export default function App({ user, initial }: { user: User; initial: { settings
                   <span data-testid="app-version">
                     {version || "불러오는 중…"}
                   </span>{" "}
-                  · 3단계 개인 AI 채팅
+                  · 4단계 웹·파일 검색
                 </p>
               </div>
               <span className="pill">{demo ? '로컬 데모' : 'AI 채팅'}</span>
             </section>
             <p className="settings-footnote">
-              현재 제공 기능: 개인 AI 채팅, 대화 저장·복원, 테마 설정.
+              현재 제공 기능: 개인 AI 채팅, 웹·문서 검색, 검색 출처, 대화 저장·복원, 테마 설정.
               <br />
               AI 연결 설정은 서버 관리자가 관리합니다. 데모 메시지는 저장하거나 AI에 전송하지 않습니다.
             </p>

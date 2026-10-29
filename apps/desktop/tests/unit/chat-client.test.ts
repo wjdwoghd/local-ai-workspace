@@ -25,3 +25,30 @@ it('logout aborts in-flight stream and never emits later content', async () => {
   await client.execute({ action: 'logout' });
   expect(await task).toMatchObject({ ok: false }); expect(emit).not.toHaveBeenCalled();
 });
+it('passes search options and source events without forwarding bearer credentials', async () => {
+  const citations = [{ kind: 'web', title: '출처', url: 'https://example.com', start: 0, end: 2 }];
+  const transport = vi.fn().mockResolvedValueOnce(loginResponse()).mockResolvedValueOnce(new Response(`data: ${JSON.stringify({ type: 'sources', citations })}\n\ndata: {"type":"done"}\n\n`));
+  const client = new AuthClient('https://example.com/api/action', transport);
+  await client.execute({ action: 'login', username: 'alice', password: 'password' });
+  const emit = vi.fn();
+  await client.stream({ ...input, webSearch: true, documentSearch: true }, emit);
+  expect(JSON.parse(transport.mock.calls[1][1].body)).toMatchObject({ webSearch: true, documentSearch: true });
+  expect(emit.mock.calls[0][0]).toEqual({ type: 'sources', citations });
+  expect(JSON.stringify(emit.mock.calls)).not.toContain(credential);
+});
+it('requires login before opening a picker and serializes import against account changes', async () => {
+  const transport = vi.fn().mockResolvedValueOnce(loginResponse()).mockResolvedValueOnce(Response.json({ ok: true, data: { id: 'doc' } })).mockResolvedValueOnce(Response.json({ ok: true, data: null }));
+  const client = new AuthClient('https://example.com/api/action', transport);
+  const picker = vi.fn();
+  expect(await client.importDocument(picker)).toMatchObject({ status: 401 }); expect(picker).not.toHaveBeenCalled();
+  await client.execute({ action: 'login', username: 'alice', password: 'password' });
+  let release!: (input: { name: string; base64: string; teamId: null }) => void;
+  const task = client.importDocument(() => new Promise(resolve => { release = resolve; }));
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  const logout = client.execute({ action: 'logout' });
+  expect(transport).toHaveBeenCalledTimes(1);
+  release({ name: 'x.txt', base64: 'YQ==', teamId: null });
+  expect(await task).toMatchObject({ ok: true, data: { id: 'doc' } }); await logout;
+  expect(String(transport.mock.calls[1][0])).toBe('https://example.com/api/documents');
+  expect(new Headers(transport.mock.calls[1][1].headers).get('Authorization')).toBe(`Bearer ${credential}`);
+});

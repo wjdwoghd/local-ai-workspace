@@ -701,3 +701,20 @@ fieldset {
 .chat-heading > button, .chat-loading button { padding: 7px 10px; border-radius: 8px; cursor: pointer; }
 .chat-loading { color: var(--muted); }
 .local-note p { overflow-wrap: anywhere; line-height: 1.6; }
+/* Search controls share the active light/dark theme. */
+.search-options { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; border: 0; padding: 8px 0; }
+.search-options label { display: flex; align-items: center; gap: 5px; }
+.search-options small { opacity: .7; }
+.document-page { overflow-y: auto; }
+.document-page fieldset { border: 0; padding: 0; }
+.document-page input, .document-page select { max-width: 100%; padding: 8px; color: inherit; background: var(--bg); border: 1px solid currentColor; border-radius: 6px; }
+.document-row { display: flex; gap: 16px; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid; }
+.document-row small { display: block; opacity: .7; }
+.document-row strong, .sources button { overflow-wrap: anywhere; }
+.sources { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0; font-size: 12px; }
+.sources strong { width: 100%; }
+.sources button, .inline-citation { color: inherit; background: transparent; border: 1px solid; border-radius: 5px; cursor: pointer; padding: 3px 7px; text-align: left; }
+.inline-citation { display: inline; text-decoration: underline; padding: 0 3px; }
+.document-preview { position: fixed; z-index: 100; inset: 12% 12%; padding: 24px; overflow-y: auto; background: var(--surface); color: var(--text); border: 1px solid; border-radius: 12px; box-shadow: 0 8px 40px #0006; }
+.document-preview p, .search-hit p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.search-hit { margin-top: 16px; border-top: 1px solid; }

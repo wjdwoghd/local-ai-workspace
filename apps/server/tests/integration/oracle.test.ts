@@ -10,6 +10,8 @@ import { app } from "../../src/app";
 import { digest, token } from "../../src/security";
 import { chatStore } from '../../src/chat-store';
 import type { ChatMessage } from '../../../../packages/shared-types/chat';
+import { documents } from '../../src/documents';
+import type { DocumentMeta, SearchHit, Team } from '../../../../packages/shared-types/search';
 
 const enabled = ["TEST_ORACLE_USER", "TEST_ORACLE_PASSWORD", "TEST_ORACLE_CONNECT_STRING", "TEST_ORACLE_CONFIRM_SCHEMA"].some(key => Boolean(process.env[key]));
 it.skipIf(!enabled)("real Oracle: ten users, ownership CRUD, RBAC, session revocation, expiry, throttling, transactions", async () => {
@@ -24,11 +26,13 @@ it.skipIf(!enabled)("real Oracle: ten users, ownership CRUD, RBAC, session revoc
   const db = database(pool);
   const auth = service(db, c);
   const store = chatStore(auth);
-  const server = app(auth);
+  const docs = documents(auth);
+  const server = app(auth, undefined, docs);
   const run = randomUUID().slice(0, 8);
   const adminName = `admin.${run}`;
   const password = token();
   const created: string[] = [];
+  const createdTeams: string[] = [];
   const limitKeys: string[] = [];
   const ip = `test-${run}`;
   let adminId: string | undefined;
@@ -69,6 +73,33 @@ it.skipIf(!enabled)("real Oracle: ten users, ownership CRUD, RBAC, session revoc
       accounts.push({ user, credential: login.credential, meta });
       await call({ action: "saveSettings", theme: i % 2 ? "dark" : "light" }, login.credential);
     }
+    // Real SQL ACLs, CLOB citations, team revocation and cascade deletion.
+    const personalDocs: DocumentMeta[] = [];
+    for (let i = 0; i < 10; i++) personalDocs.push(await docs.upload({ name: `private-${i}.txt`, base64: Buffer.from(`공통검색 개인기밀 ${i}`).toString('base64'), teamId: null }, accounts[i].credential));
+    for (let i = 0; i < 10; i++) {
+      const own = personalDocs[i], other = personalDocs[(i + 1) % 10];
+      expect((await call<SearchHit[]>({ action: 'searchDocuments', query: '공통검색' }, accounts[i].credential)).map(h => h.documentId)).toEqual([own.id]);
+      for (const credential of [accounts[i].credential, admin.credential]) {
+        await call({ action: 'readDocument', id: other.id }, credential, 404);
+        await call({ action: 'deleteDocument', id: other.id }, credential, 404);
+      }
+      expect(await call({ action: 'readDocument', id: own.id }, accounts[i].credential)).toMatchObject({ name: own.name, parts: [{ chunk: 1, location: '줄 1', text: `공통검색 개인기밀 ${i}` }] });
+    }
+    const team = await call<Team>({ action: 'createTeam', name: `test-${run}` }, admin.credential); createdTeams.push(team.id);
+    await call({ action: 'createTeam', name: 'forged' }, accounts[0].credential, 403);
+    for (const account of accounts.slice(0, 2)) await call({ action: 'addTeamMember', id: team.id, userId: account.user.id }, admin.credential);
+    const shared = await docs.upload({ name: '팀정책.txt', base64: Buffer.from('팀검색 휴가 20일').toString('base64'), teamId: team.id }, accounts[0].credential);
+    expect(await call<SearchHit[]>({ action: 'searchDocuments', query: '팀검색' }, accounts[1].credential)).toHaveLength(1);
+    expect(await call<SearchHit[]>({ action: 'searchDocuments', query: '팀검색' }, accounts[2].credential)).toEqual([]);
+    await expect(docs.upload({ name: 'forged.txt', base64: 'YQ==', teamId: team.id }, accounts[2].credential)).rejects.toMatchObject({ status: 403 });
+    await call({ action: 'removeTeamMember', id: team.id, userId: accounts[0].user.id }, accounts[1].credential, 403);
+    await call({ action: 'removeTeamMember', id: team.id, userId: accounts[0].user.id }, admin.credential);
+    await call({ action: 'readDocument', id: shared.id }, accounts[0].credential, 404);
+    await call({ action: 'deleteDocument', id: shared.id }, accounts[0].credential, 404);
+    expect(await docs.search('팀검색', accounts[0].credential)).toEqual([]);
+    await expect(docs.verify([shared.id], accounts[0].credential)).rejects.toMatchObject({ status: 403 });
+    await call({ action: 'deleteDocument', id: personalDocs[0].id }, accounts[0].credential);
+    expect(await db.transaction(c => rows(c, 'SELECT ordinal FROM s4_chunks WHERE document_id = :id', { id: personalDocs[0].id }))).toEqual([]);
     for (let i = 0; i < 10; i++) {
       const a = accounts[i], other = accounts[(i + 1) % 10];
       expect(await call({ action: "me" }, a.credential)).toMatchObject({ id: a.user.id });
@@ -92,9 +123,11 @@ it.skipIf(!enabled)("real Oracle: ten users, ownership CRUD, RBAC, session revoc
       // A separate service instance must see the DB lease, including after process restart.
       await expect(chatStore(service(db, c)).prepare(input, a.credential)).rejects.toMatchObject({ status: 409 });
       await expect(store.finish(input, randomUUID(), 'forged finish', a.credential)).rejects.toMatchObject({ status: 409 });
-      await store.finish(input, prepared.run, `private answer ${i}`, a.credential);
+      const citations = [{ kind: 'web' as const, title: '출처', url: 'https://example.com' }];
+      await store.finish(input, prepared.run, `private answer ${i}`, a.credential, citations);
       const saved = await call<ChatMessage[]>({ action: 'messages', id: a.meta.id }, a.credential);
       expect(saved.map(m => m.text)).toEqual([input.text, `private answer ${i}`]);
+      expect(saved[1].citations).toEqual(citations);
       const restored = await chatStore(service(db, c)).prepare(input, a.credential);
       expect(restored.messages).toEqual(saved);
       await store.release(input.id, restored.run, a.credential);
@@ -135,6 +168,7 @@ it.skipIf(!enabled)("real Oracle: ten users, ownership CRUD, RBAC, session revoc
     await server.close();
     try {
       if (bootstrapped) await db.transaction(async connection => {
+        for (const id of createdTeams) await connection.execute('DELETE FROM s4_teams WHERE id = :id', { id });
         // Delete only users created by this run, with FK cascade; never truncate or drop a schema.
         const ids = [...created, ...(adminId ? [adminId] : [])];
         // If login failed after bootstrap, find ONLY this run's exact randomized admin name.

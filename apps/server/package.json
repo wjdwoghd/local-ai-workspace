@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "build": "pnpm typecheck && tsup src/index.ts src/cli.ts --format esm --platform node --target node24 --clean",
+    "build": "pnpm typecheck && tsup src/index.ts src/cli.ts src/document-worker.mjs --format esm --platform node --target node24 --clean",
     "test": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration --testTimeout=120000 --hookTimeout=30000",
     "db:migrate": "tsx src/cli.ts migrate",
@@ -15,8 +15,11 @@
   },
   "dependencies": {
     "dotenv": "^17.4.2",
+    "fast-xml-parser": "^5.11.2",
     "fastify": "^5.12.7",
-    "oracledb": "^6.10.0"
+    "fflate": "^0.8.3",
+    "oracledb": "^6.10.0",
+    "pdfjs-dist": "^6.4.299"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

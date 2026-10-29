@@ -1,9 +1,11 @@
+import { parseSearchOperation, type SearchOperation } from './search';
 export type Role = "admin" | "user";
 export type Theme = "light" | "dark" | "system";
 export interface User { id: string; username: string; role: Role; active: boolean }
 export interface ConversationMeta { id: string; title: string }
 export interface Settings { theme: Theme }
 export type Operation =
+  | SearchOperation
   | { action: "login"; username: string; password: string }
   | { action: "logout" | "me" | "users" | "conversations" | "settings" | "chatStatus" }
   | { action: "createUser"; username: string; password: string; role: Role }
@@ -27,6 +29,8 @@ export function password(value: unknown, creating = true): string {
 export function parseOperation(raw: unknown): Operation {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new InputError("잘못된 요청입니다.");
   const o = raw as Record<string, unknown>;
+  const search = parseSearchOperation(o);
+  if (search) return search;
   const shape: Record<string, string[]> = {
     login: ["username", "password"], logout: [], me: [], users: [], conversations: [], settings: [], chatStatus: [], messages: ["id"],
     createUser: ["username", "password", "role"], disableUser: ["id"], resetPassword: ["id", "password"],

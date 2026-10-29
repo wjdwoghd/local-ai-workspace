@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import type { Page } from "@playwright/test";
 import { parseOperation, type ConversationMeta, type User, type Theme } from "../../../../../packages/shared-types/auth";
 import { parseChat, type ChatMessage } from '../../../../../packages/shared-types/chat';
+import { parseUpload, type Citation, type DocumentMeta } from '../../../../../packages/shared-types/search';
 export async function authFixture(ai = false) {
   const password = randomBytes(24).toString("hex");
   const users = ["alice", "bob", "admin"].map(username => ({ id: randomUUID(), username, role: username === "admin" ? "admin" : "user", active: true } as User));
@@ -13,12 +14,20 @@ export async function authFixture(ai = false) {
   const chats = new Map<string, { owner: string; meta: ConversationMeta }>();
   const messages = new Map<string, ChatMessage[]>();
   const contexts: string[][] = [];
+  const documents = new Map<string, DocumentMeta & { text: string }>();
   const server = createServer(async (req, res) => {
     res.setHeader("Content-Type", "application/json");
     const send = (status: number, data?: unknown) => { res.statusCode = status; res.end(JSON.stringify(status === 200 ? { ok: true, data } : { ok: false, status })); };
     try {
       let text = "";
       for await (const chunk of req) text += chunk;
+      if (req.url === '/api/documents') {
+        const input = parseUpload(JSON.parse(text));
+        const user = sessions.get(req.headers.authorization?.slice(7) || '');
+        if (!user) return send(401);
+        const doc = { id: randomUUID(), name: input.name, owner: user.id, teamId: null, chunks: 1, text: Buffer.from(input.base64, 'base64').toString('utf8') };
+        documents.set(doc.id, doc); return send(200, doc);
+      }
       if (req.url === '/api/chat') {
         const input = parseChat(JSON.parse(text));
         const user = sessions.get(req.headers.authorization?.slice(7) || '');
@@ -33,9 +42,14 @@ export async function authFixture(ai = false) {
         emit({ type: 'delta', text: '테스트 ' });
         await new Promise(resolve => setTimeout(resolve, input.text === '중단 테스트' ? 500 : 80));
         if (res.destroyed) return;
-        const answer = '테스트 스트리밍 응답';
-        emit({ type: 'delta', text: '스트리밍 응답' });
-        messages.set(input.id, [...history, { id: randomUUID(), role: 'user', text: input.text, model: input.model }, { id: randomUUID(), role: 'assistant', text: answer, model: input.model }]);
+        const citations: Citation[] = [];
+        const doc = [...documents.values()].find(d => d.owner === user.id);
+        if (input.documentSearch && doc) citations.push({ kind: 'document', title: `[D1] ${doc.name}`, documentId: doc.id, chunk: 1, location: '줄 1' });
+        const answer = citations.length ? '테스트 스트리밍 응답 [D1] 공식' : '테스트 스트리밍 응답';
+        if (input.webSearch) citations.push({ kind: 'web', title: '공식 출처', url: 'https://example.com/policy', start: answer.length - 2, end: answer.length });
+        emit({ type: 'delta', text: answer.slice(4) });
+        if (citations.length) emit({ type: 'sources', citations });
+        messages.set(input.id, [...history, { id: randomUUID(), role: 'user', text: input.text, model: input.model }, { id: randomUUID(), role: 'assistant', text: answer, model: input.model, ...(citations.length ? { citations } : {}) }]);
         if (!history.length) c.meta.title = input.text.slice(0, 28);
         emit({ type: 'done' }); res.end(); return;
       }
@@ -50,6 +64,14 @@ export async function authFixture(ai = false) {
       const u = sessions.get(credential);
       if (!u) return send(401);
       switch (op.action) {
+        case 'teams': return send(200, []);
+        case 'documents': return send(200, [...documents.values()].filter(d => d.owner === u.id));
+        case 'searchDocuments': return send(200, [...documents.values()].filter(d => d.owner === u.id && d.text.includes(op.query)).map(d => ({ documentId: d.id, name: d.name, chunk: 1, location: '줄 1', text: d.text })));
+        case 'readDocument': {
+          const d = documents.get(op.id); if (d?.owner !== u.id) return send(404);
+          return send(200, { ...d, parts: [{ chunk: 1, location: '줄 1', text: d.text }] });
+        }
+        case 'deleteDocument': if (documents.get(op.id)?.owner !== u.id) return send(404); documents.delete(op.id); return send(200, null);
         case 'chatStatus': return send(200, { configured: ai, models: [{ id: 'gpt-6-astra', label: 'Astra' }], message: ai ? '테스트 서버' : '서버 API 키 설정이 필요합니다.' });
         case 'messages': if (chats.get(op.id)?.owner !== u.id) return send(404); return send(200, messages.get(op.id) ?? []);
         case 'getConversation': if (chats.get(op.id)?.owner !== u.id) return send(404); return send(200, chats.get(op.id)!.meta);

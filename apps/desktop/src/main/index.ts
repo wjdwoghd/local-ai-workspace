@@ -1,5 +1,8 @@
-import { app, BrowserWindow, ipcMain, nativeTheme } from "electron";
-import { join } from "node:path";
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
+import { join, basename } from "node:path";
+import { open } from 'node:fs/promises';
+import { FILE_EXTENSIONS, MAX_FILE_BYTES, safeWebURL } from '../../../../packages/shared-types/search';
+import { parseOperation } from '../../../../packages/shared-types/auth';
 import { pathToFileURL } from "node:url";
 import { createWindow } from "./window";
 import { isTheme, isTrustedURL } from "./security/policy";
@@ -89,6 +92,30 @@ app
     });
     ipcMain.handle('desktop:chat-cancel', (event, ...args: unknown[]) => {
       validate(event, args, 0); auth.cancelChat();
+    });
+    ipcMain.handle('desktop:document-import', async (event, ...args: unknown[]) => {
+      validate(event, args, 1);
+      const teamId = args[0];
+      if (teamId !== null) parseOperation({ action: 'getConversation', id: teamId });
+      return auth.importDocument(async () => {
+        const picked = await dialog.showOpenDialog(mainWindow!, { title: '검색할 문서 등록', properties: ['openFile'], filters: [{ name: '검색 문서', extensions: [...FILE_EXTENSIONS] }] });
+        if (picked.canceled || picked.filePaths.length !== 1) return;
+        const file = await open(picked.filePaths[0], 'r');
+        try {
+          const stat = await file.stat();
+          if (!stat.isFile() || stat.size > MAX_FILE_BYTES || !stat.size) throw new Error('File limit');
+          const buffer = Buffer.alloc(MAX_FILE_BYTES + 1);
+          let size = 0;
+          while (size < buffer.length) { const read = await file.read(buffer, size, buffer.length - size, null); if (!read.bytesRead) break; size += read.bytesRead; }
+          if (size > MAX_FILE_BYTES) throw new Error('File limit');
+          return { name: basename(picked.filePaths[0]), base64: buffer.subarray(0, size).toString('base64'), teamId: teamId as string | null };
+        } finally { await file.close(); }
+      });
+    });
+    ipcMain.handle('desktop:source-open', async (event, ...args: unknown[]) => {
+      validate(event, args, 1);
+      if (!safeWebURL(args[0])) throw new Error('잘못된 출처 주소');
+      await shell.openExternal(args[0]);
     });
     ipcMain.handle("desktop:theme", async (event, ...args: unknown[]) => {
       validate(event, args, 1);

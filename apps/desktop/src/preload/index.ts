@@ -15,5 +15,7 @@ const api: DesktopAPI = {
     finally { ipcRenderer.removeListener('desktop:chat-event', listener); }
   },
   cancelChat: () => ipcRenderer.invoke('desktop:chat-cancel'),
+  importDocument: teamId => ipcRenderer.invoke('desktop:document-import', teamId),
+  openSource: url => ipcRenderer.invoke('desktop:source-open', url),
 };
 contextBridge.exposeInMainWorld("desktop", Object.freeze(api));
