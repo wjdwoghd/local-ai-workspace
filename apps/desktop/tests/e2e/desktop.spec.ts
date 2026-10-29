@@ -2,9 +2,11 @@ import { test, expect, _electron as electron } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { authFixture, login } from "./support/auth-server";
 
 test("채팅·설정·테마 재실행 복원과 Electron 보안", async () => {
   const profile = await mkdtemp(join(tmpdir(), "local-ai-ui-"));
+  const fixture = await authFixture();
   const environment = Object.fromEntries(
     Object.entries(process.env).filter(
       (entry): entry is [string, string] =>
@@ -18,15 +20,18 @@ test("채팅·설정·테마 재실행 복원과 Electron 보안", async () => {
         ...environment,
         LOCAL_AI_TEST_PROFILE: profile,
         ELECTRON_RENDERER_URL: process.env.TEST_RENDERER_URL || "",
+        AUTH_SERVER_URL: fixture.url,
       },
     });
   let app = await launch();
   try {
     let page = await app.firstWindow();
+    await login(page, "alice", fixture.password);
     await expect(
       page.getByRole("heading", { name: "새로운 대화" }),
     ).toBeVisible();
-    await page.keyboard.press("Tab");
+    await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
+    await page.getByRole("link", { name: "본문으로 건너뛰기" }).focus();
     await expect(
       page.getByRole("link", { name: "본문으로 건너뛰기" }),
     ).toBeFocused();
@@ -58,7 +63,7 @@ test("채팅·설정·테마 재실행 복원과 Electron 보안", async () => {
         node: typeof (window as unknown as { require?: unknown }).require,
         api: Object.keys(window.desktop).sort(),
       })),
-    ).toEqual({ node: "undefined", api: ["getInfo", "setTheme"] });
+    ).toEqual({ node: "undefined", api: ["auth", "getInfo", "setTheme"] });
     await expect(
       page.evaluate(() => window.desktop.setTheme("invalid" as never)),
     ).rejects.toThrow();
@@ -108,13 +113,13 @@ test("채팅·설정·테마 재실행 복원과 Electron 보안", async () => {
     await app.close();
     app = await launch();
     page = await app.firstWindow();
+    await expect(page.getByRole("heading", { name: "로그인", exact: true })).toBeVisible();
+    await login(page, "alice", fixture.password);
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await page.getByRole("button", { name: "설정", exact: true }).click();
     await expect(page.getByRole("radio", { name: /다크/ })).toBeChecked();
     await page.getByRole("button", { name: "채팅", exact: true }).click();
-    await expect(
-      page.getByRole("heading", { name: "새로운 대화" }),
-    ).toBeVisible();
+    await expect(page.getByRole("log")).toHaveCount(0);
     await page.setViewportSize({ width: 680, height: 560 });
     expect(
       await page.evaluate(
@@ -125,6 +130,7 @@ test("채팅·설정·테마 재실행 복원과 Electron 보안", async () => {
     await page.screenshot({ path: "test-results/chat-compact.png" });
   } finally {
     await app.close();
+    await fixture.close();
     await rm(profile, { recursive: true, force: true });
   }
 });

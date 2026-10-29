@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { ThemePreference } from "../../../../packages/shared-types/ipc/desktop";
-import { createConversation, demoReply } from "./features/chat/demo";
+import { demoReply } from "./features/chat/demo";
+import type { Conversation } from "./features/chat/demo";
+import type { User, Settings, ConversationMeta } from "../../../../packages/shared-types/auth";
+import { request } from "./api";
 
 const themes: {
   value: ThemePreference;
@@ -28,14 +31,12 @@ const themes: {
   },
 ];
 
-export default function App() {
-  const [conversations, setConversations] = useState(() => [
-    createConversation(),
-  ]);
+export default function App({ user, initial }: { user: User; initial: { settings: Settings; conversations: ConversationMeta[] } }) {
+  const [conversations, setConversations] = useState<Conversation[]>(() => initial.conversations.map(c => ({ ...c, messages: [] })));
   const [activeId, setActiveId] = useState(conversations[0].id);
   const [page, setPage] = useState<"chat" | "settings">("chat");
   const [draft, setDraft] = useState("");
-  const [theme, setTheme] = useState<ThemePreference>("system");
+  const [theme, setTheme] = useState<ThemePreference>(initial.settings.theme);
   const [version, setVersion] = useState("");
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -49,7 +50,6 @@ export default function App() {
     window.desktop
       .getInfo()
       .then((info) => {
-        setTheme(info.theme);
         setVersion(info.version);
         setReady(true);
       })
@@ -71,17 +71,20 @@ export default function App() {
     end.current?.scrollIntoView({ behavior: "smooth" });
   }, [current.messages.length, page, activeId]);
 
-  function newChat() {
-    const chat = createConversation();
-    setConversations((items) => [chat, ...items]);
-    setActiveId(chat.id);
-    setPage("chat");
-    setDraft("");
-    requestAnimationFrame(() => input.current?.focus());
+  async function newChat() {
+    try {
+      const meta = await request<ConversationMeta>({ action: "createConversation", title: "새 대화" });
+      const chat = { ...meta, messages: [] };
+      setConversations((items) => [chat, ...items]);
+      setActiveId(chat.id); setPage("chat"); setDraft("");
+      requestAnimationFrame(() => input.current?.focus());
+    } catch (e) { setError((e as Error).message); }
   }
-  function send(text = draft) {
+  async function send(text = draft) {
     text = text.trim();
     if (!text || text.length > 4000) return;
+    try { await request({ action: "updateConversation", id: activeId, title: current.messages.length ? current.title : text.slice(0, 28) }); }
+    catch (e) { setError((e as Error).message); return; }
     setConversations((items) =>
       items.map((item) =>
         item.id !== activeId
@@ -109,7 +112,7 @@ export default function App() {
     setNotice("");
     setError("");
     try {
-      await window.desktop.setTheme(value);
+      await request({ action: "saveSettings", theme: value });
       setTheme(value);
       setNotice("테마 설정을 저장했습니다.");
     } catch {
@@ -153,7 +156,7 @@ export default function App() {
           </button>
         </nav>
         <div className="history-label">
-          이번 실행의 대화 <span>{conversations.length}</span>
+          내 대화 <span>{conversations.length}</span>
         </div>
         <nav className="history" aria-label="대화 목록">
           {conversations.map((chat) => (
@@ -177,7 +180,7 @@ export default function App() {
         <div className="sidebar-bottom">
           <div className="local-note">
             <span className="status-dot" /> 로컬 데모 모드
-            <p>외부 연결 없이 화면을 체험하세요.</p>
+            <p>Astra · 실제 AI 연결 없음</p>
           </div>
           <button
             className={`nav-item ${page === "settings" ? "selected" : ""}`}
@@ -192,7 +195,7 @@ export default function App() {
           <div className="profile">
             <span className="avatar">나</span>
             <div>
-              내 워크스페이스<small>이 기기에서 체험 중</small>
+              {user.username}<small>개인 워크스페이스</small>
             </div>
           </div>
         </div>
@@ -221,6 +224,15 @@ export default function App() {
                 <p>생각을 정리하는 나만의 공간</p>
               </div>
               <span className="pill">로컬 데모</span>
+              <button onClick={async () => {
+                try {
+                  let remaining = conversations.filter(c => c.id !== activeId);
+                  // Create a replacement first so a failed request never leaves an empty UI.
+                  if (!remaining.length) remaining = [{ ...await request<ConversationMeta>({ action: "createConversation", title: "새 대화" }), messages: [] }];
+                  await request({ action: "deleteConversation", id: activeId });
+                  setConversations(remaining); setActiveId(remaining[0].id); setDraft("");
+                } catch (e) { setError((e as Error).message); }
+              }}>대화 삭제</button>
             </div>
             <div
               className={`message-scroll ${current.messages.length ? "" : "empty-scroll"}`}
@@ -343,8 +355,7 @@ export default function App() {
                 </div>
               </form>
               <p className="disclaimer">
-                실제 AI가 아닌 로컬 데모 응답입니다. 대화는 앱을 닫으면
-                사라집니다.
+                Astra 데모 응답입니다. 실제 AI 호출은 없습니다. 제목만 서버에 저장하며 메시지는 로그아웃·종료 시 사라집니다.
               </p>
             </div>
           </section>
@@ -357,7 +368,7 @@ export default function App() {
             </p>
             <section className="settings-card">
               <h2>화면 테마</h2>
-              <p>선택한 테마는 이 기기에 저장되며 다음 실행에도 유지됩니다.</p>
+              <p>선택한 테마는 내 계정에 저장되며 다음 로그인에도 유지됩니다.</p>
               <fieldset disabled={!ready || saving}>
                 <legend className="sr-only">화면 테마 선택</legend>
                 <div className="theme-options">
@@ -402,7 +413,7 @@ export default function App() {
                   <span data-testid="app-version">
                     {version || "불러오는 중…"}
                   </span>{" "}
-                  · 1단계 UI 데모
+                  · 2단계 계정 인증 / AI 데모
                 </p>
               </div>
               <span className="pill">로컬 데모</span>
@@ -410,7 +421,7 @@ export default function App() {
             <p className="settings-footnote">
               현재 제공 기능: 데모 채팅, 대화 목록, 테마 설정.
               <br />
-              계정 로그인과 실제 AI 연결은 후속 단계에서 제공할 예정입니다.
+              계정 인증·개인 설정·대화 제목 저장을 제공합니다. 실제 AI 연결은 3단계에서 제공합니다.
             </p>
           </section>
         )}

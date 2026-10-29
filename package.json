@@ -6,9 +6,11 @@
   "packageManager": "pnpm@10.34.5",
   "scripts": {
     "dev": "pnpm --filter @local-ai-workspace/desktop dev",
-    "typecheck": "pnpm --filter @local-ai-workspace/desktop typecheck",
-    "build": "pnpm --filter @local-ai-workspace/desktop build",
-    "test": "pnpm --filter @local-ai-workspace/desktop test",
+    "dev:server": "pnpm --filter @local-ai-workspace/server dev",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "build": "pnpm -r --if-present build",
+    "test": "pnpm -r --if-present test",
+    "test:oracle": "pnpm --filter @local-ai-workspace/server test:integration",
     "test:e2e": "pnpm --filter @local-ai-workspace/desktop test:e2e",
     "package:win": "pnpm --filter @local-ai-workspace/desktop package:win"
   },

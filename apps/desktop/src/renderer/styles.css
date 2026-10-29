@@ -678,3 +678,18 @@ fieldset {
     padding-bottom: 20px;
   }
 }
+/* Authentication and account administration share the existing theme tokens. */
+.login-page { min-height: 100vh; display: grid; place-items: center; padding: 32px; }
+.login-card { width: min(100%, 440px); }
+.login-card label, .account-form label { display: grid; gap: 8px; margin: 16px 0; }
+.login-card input, .account-form input, .account-form select { font: inherit; padding: 10px; border: 1px solid #879a95; border-radius: 8px; color: inherit; background: transparent; }
+.login-card button, .account-form button, .session-bar button, .accounts button { padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+.signed-workspace { height: 100vh; display: flex; flex-direction: column; }
+.session-bar { min-height: 44px; padding: 6px 18px; display: flex; gap: 12px; align-items: center; border-bottom: 1px solid #879a95; }
+.session-bar span { margin-right: auto; }
+.signed-workspace > div:not(.session-bar) { flex: 1; min-height: 0; }
+.signed-workspace > div[hidden] { display: none; }
+.signed-workspace .app-shell { height: 100%; }
+.accounts { overflow-y: auto; width: 100%; max-width: 1000px; align-self: center; }
+.account-form { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
+.account-form button { margin-bottom: 16px; }

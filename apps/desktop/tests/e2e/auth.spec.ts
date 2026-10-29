@@ -1,0 +1,64 @@
+import { test, expect, _electron as electron } from "@playwright/test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { authFixture, login } from "./support/auth-server";
+
+test("login failure, account switching, private cache removal, admin UI, expiry, unavailable server", async () => {
+  const fixture = await authFixture();
+  const profile = await mkdtemp(join(tmpdir(), "local-ai-auth-"));
+  const environment = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined && e[0] !== "ELECTRON_RUN_AS_NODE"));
+  const app = await electron.launch({ args: [resolve(".")], env: { ...environment, LOCAL_AI_TEST_PROFILE: profile, AUTH_SERVER_URL: fixture.url } });
+  let fixtureClosed = false;
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByRole("heading", { name: "로그인", exact: true })).toBeVisible();
+    await page.getByLabel("계정 이름", { exact: true }).fill("alice");
+    await page.getByLabel("비밀번호", { exact: true }).fill("incorrect");
+    await page.getByRole("button", { name: "로그인", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("계정 정보를 확인");
+    await login(page, "alice", fixture.password);
+    await expect(page.getByRole("button", { name: "계정 관리", exact: true })).toHaveCount(0);
+    const denied = await page.evaluate(() => window.desktop.auth({ action: "users" }));
+    expect(denied).toMatchObject({ ok: false, status: 403 });
+    await page.getByLabel("메시지 입력").fill("Alice private conversation");
+    await page.getByLabel("메시지 입력").press("Enter");
+    await expect(page.getByRole("log")).toContainText("Alice private conversation");
+    await page.getByRole("button", { name: "설정", exact: true }).click();
+    await page.getByRole("radio", { name: /다크/ }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await page.getByRole("button", { name: "로그아웃", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "로그인", exact: true })).toBeVisible();
+    await expect(page.getByText("Alice private conversation", { exact: true })).toHaveCount(0);
+    await login(page, "bob", fixture.password);
+    await expect(page.getByRole("log")).toHaveCount(0);
+    await expect(page.getByLabel("메시지 입력")).toHaveValue("");
+    await expect(page.getByRole("navigation", { name: "대화 목록" })).not.toContainText("Alice private");
+    expect(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length }))).toEqual({ local: 0, session: 0 });
+    await page.getByRole("button", { name: "설정", exact: true }).click();
+    await expect(page.getByRole("radio", { name: /시스템/ })).toBeChecked();
+    await page.getByRole("button", { name: "로그아웃", exact: true }).click();
+    await login(page, "admin", fixture.password);
+    await page.getByRole("button", { name: "계정 관리", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "팀원 계정 관리" })).toBeVisible();
+    await page.getByRole("button", { name: "로그아웃", exact: true }).click();
+    await login(page, "alice", fixture.password);
+    await expect(page.getByRole("log")).toHaveCount(0);
+    await expect(page.getByRole("navigation", { name: "대화 목록" })).toContainText("Alice private");
+    await page.getByRole("button", { name: "설정", exact: true }).click();
+    await expect(page.getByRole("radio", { name: /다크/ })).toBeChecked();
+    fixture.expire();
+    await page.getByRole("radio", { name: /라이트/ }).click();
+    await expect(page.getByRole("heading", { name: "로그인", exact: true })).toBeVisible();
+    await expect(page.getByRole("alert")).toContainText("세션이 만료");
+    await fixture.close(); fixtureClosed = true;
+    await page.getByLabel("계정 이름", { exact: true }).fill("alice");
+    await page.getByLabel("비밀번호", { exact: true }).fill(fixture.password);
+    await page.getByRole("button", { name: "로그인", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("인증 서버에 연결할 수 없습니다");
+  } finally {
+    await app.close();
+    if (!fixtureClosed) await fixture.close();
+    await rm(profile, { recursive: true, force: true });
+  }
+});

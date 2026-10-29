@@ -6,4 +6,5 @@ export interface DesktopInfo {
 export interface DesktopAPI {
   getInfo(): Promise<DesktopInfo>;
   setTheme(theme: ThemePreference): Promise<void>;
+  auth(operation: import("../auth").Operation): Promise<import("../auth").Result>;
 }

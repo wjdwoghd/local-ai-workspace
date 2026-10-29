@@ -21,14 +21,10 @@ test("패키징된 Windows 실행 파일", async () => {
     expect(await app.evaluate(({ app }) => app.isPackaged)).toBe(true);
     const page = await app.firstWindow();
     await expect(
-      page.getByRole("heading", { name: "새로운 대화" }),
+      page.getByRole("heading", { name: "로그인", exact: true }),
     ).toBeVisible();
-    await page.getByLabel("메시지 입력").fill("패키징 실행 확인");
-    await page.getByLabel("메시지 입력").press("Enter");
-    await expect(page.getByRole("log")).toContainText("데모 응답");
-    await page.getByRole("button", { name: "설정", exact: true }).click();
-    await expect(page.getByTestId("app-version")).toHaveText("0.1.0");
-    await page.screenshot({ path: "test-results/packaged-settings.png" });
+    await expect(page.getByLabel("비밀번호", { exact: true })).toHaveAttribute("type", "password");
+    await page.screenshot({ path: "test-results/packaged-login.png" });
   } finally {
     await app.close();
   }

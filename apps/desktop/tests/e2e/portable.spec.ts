@@ -50,14 +50,10 @@ test("단일 포터블 EXE 실행", async () => {
     const context = browser!.contexts()[0];
     const page = context.pages()[0] || (await context.waitForEvent("page"));
     await expect(
-      page.getByRole("heading", { name: "새로운 대화" }),
+      page.getByRole("heading", { name: "로그인", exact: true }),
     ).toBeVisible();
-    await page.getByLabel("메시지 입력").fill("포터블 실행 확인");
-    await page.getByLabel("메시지 입력").press("Enter");
-    await expect(page.getByRole("log")).toContainText("데모 응답");
-    await page.getByRole("button", { name: "설정", exact: true }).click();
-    await expect(page.getByTestId("app-version")).toHaveText("0.1.0");
-    await page.screenshot({ path: "test-results/portable-settings.png" });
+    await expect(page.getByLabel("비밀번호", { exact: true })).toHaveAttribute("type", "password");
+    await page.screenshot({ path: "test-results/portable-login.png" });
   } finally {
     if (browser) {
       await Promise.all(

@@ -2,5 +2,28 @@
   "name": "@local-ai-workspace/server",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "build": "pnpm typecheck && tsup src/index.ts src/cli.ts --format esm --platform node --target node24 --clean",
+    "test": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration --testTimeout=120000 --hookTimeout=30000",
+    "db:migrate": "tsx src/cli.ts migrate",
+    "admin:bootstrap": "tsx src/cli.ts bootstrap"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "fastify": "^5.12.7",
+    "oracledb": "^6.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/oracledb": "^6.10.4",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "vitest": "~3.2.7"
+  }
 }
