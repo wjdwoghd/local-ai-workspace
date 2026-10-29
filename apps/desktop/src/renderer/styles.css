@@ -746,3 +746,8 @@ fieldset {
 .workspace-modal-backdrop { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: #0008; }
 .workspace-modal { max-width: 600px; padding: 28px; border-radius: 12px; background: var(--surface, #fff); color: var(--text, #222); box-shadow: 0 12px 80px #0006; }
 .workspace-modal button { margin-right: 12px; }
+.agent-panel { margin: 8px 16px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; max-height: 300px; overflow: auto; font-size: 12px; }
+.agent-panel p { margin: 6px 0; }
+.agent-toolbar { display: flex; align-items: center; gap: 16px; }
+.agent-panel button { margin: 4px; }
+.agent-diff { height: 220px; }

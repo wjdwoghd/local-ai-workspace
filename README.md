@@ -1,5 +1,7 @@
 # local-ai-workspace
 
+[6단계 AI 코딩 에이전트·승인 정책](docs/development/agent-stage-6.md)과 [검증 결과](docs/development/agent-stage-6-validation.md)를 추가했습니다. 모드·범위·로컬 검사·승인 엔진·diff·중단 UI를 제공하며, 현재 실제 Codex 인증·코딩 모델·Windows 명령 격리는 미검증으로 실행을 차단합니다. fixture 테스트 통과는 실제 AI 연동 성공을 의미하지 않습니다.
+
 로컬 AI 워크스페이스를 위한 모노레포 기본 구조입니다.
 
 - `apps/desktop`: Electron 메인 프로세스, preload, 렌더러, 에이전트 워커

@@ -4,6 +4,7 @@ export interface DesktopInfo {
   theme: ThemePreference;
 }
 export interface DesktopAPI {
+  agent: import('../agent').AgentAPI;
   workspace: import('../workspace').WorkspaceAPI;
   getInfo(): Promise<DesktopInfo>;
   setTheme(theme: ThemePreference): Promise<void>;

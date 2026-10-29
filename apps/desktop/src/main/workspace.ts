@@ -130,12 +130,13 @@ export class LocalWorkspace {
       return decodeFile(path, bytes.subarray(0, size), `${after.dev}:${after.ino}:${after.mtimeMs}:${after.ctimeMs}:${after.mode}`);
     } finally { await handle.close(); }
   }
-  save(id: string, path: string, text: string, version: string, overwrite: boolean): Promise<SaveResult> {
-    const run = this.saveQueue.catch(() => {}).then(() => this.write(id, path, text, version, overwrite));
+  save(id: string, path: string, text: string, version: string, overwrite: boolean, canWrite: () => void = () => {}): Promise<SaveResult> {
+    const run = this.saveQueue.catch(() => {}).then(() => this.write(id, path, text, version, overwrite, canWrite));
     this.saveQueue = run;
     return run;
   }
-  private async write(id: string, path: string, text: string, version: string, _overwrite: boolean): Promise<SaveResult> {
+  private async write(id: string, path: string, text: string, version: string, _overwrite: boolean, canWrite: () => void): Promise<SaveResult> {
+    canWrite();
     // Explicit overwrite still compares the version displayed by the conflict dialog.
     let disk: WorkspaceFile;
     try { disk = await this.read(id, path); }
@@ -156,6 +157,7 @@ export class LocalWorkspace {
       const latest = await this.read(id, path);
       if (latest.version !== version) return { conflict: true, disk: latest };
       await this.path(id, path);
+      canWrite();
       // No unlink fallback: replacement failure must leave the original intact.
       await rename(temporary, full);
       this.current(id);

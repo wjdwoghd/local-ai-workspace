@@ -5,6 +5,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { WORKSPACE_LIMITS, type WorkspaceEntry, type WorkspaceFile, type WorkspaceInfo } from '../../../../packages/shared-types/workspace';
 import { WorkspaceEditor } from './WorkspaceEditor';
+import { AgentPanel } from './AgentPanel';
 import { setWorkspaceGuard } from './workspace-guard';
 import { applyWorkspaceEdits } from '../../../../packages/shared-types/workspace-text';
 
@@ -157,6 +158,7 @@ export function Workspace() {
       {info && <><strong>{info.name}</strong><small title={info.root}>{info.root}</small><button disabled={busy} onClick={async () => { if (await guard()) await api.close(info.id).catch(fail); }}>프로젝트 닫기</button><button disabled={busy} onClick={() => { for (const directory of expanded.current) void loadTree(info.id, directory); }}>새로고침</button></>}
     </div>
     {message && <p className="workspace-notice" role="status">{message}</p>}
+    {info && <AgentPanel key={info.id} id={info.id} paths={tabs.map(t => t.file.path)} dirty={isDirty} />}
     <div className="workspace-body"><aside className="file-tree" aria-label="파일 탐색기">{info ? renderDirectory('') : <p>프로젝트 폴더를 선택하세요.<br />파일과 터미널 출력은 자동 업로드되지 않습니다.</p>}</aside>
       <div className="workspace-content"><div className="file-tabs" role="tablist" aria-label="열린 파일">{tabs.map(t => <div key={t.file.path}><button role="tab" aria-selected={active === t.file.path} onClick={() => { setActive(t.file.path); setDiff(null); }}>{t.file.path}{modified(t) ? ' ●' : ''}{t.disk !== undefined ? ' ⚠' : ''}</button><button disabled={busy} aria-label={`닫기 ${t.file.path}`} onClick={() => void closeTab(t.file.path)}>×</button></div>)}</div>
         {tab ? <><div className="file-actions"><span>{tab.file.bom ? 'UTF-8 BOM' : 'UTF-8'} · {tab.file.eol}</span><button disabled={busy} onClick={() => void saveTab(tab)}>저장 Ctrl+S</button><button onClick={() => setDiff(diff === 'saved' ? null : 'saved')}>저장본 비교</button>

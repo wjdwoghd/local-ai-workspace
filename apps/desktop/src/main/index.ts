@@ -8,6 +8,8 @@ import { createWindow } from "./window";
 import { isTheme, isTrustedURL } from "./security/policy";
 import { AuthClient, serverURL } from "./auth-client";
 import { LocalWorkspace } from './workspace';
+import { AgentSession } from './agent';
+import { parseAgentRequest } from '../../../../packages/shared-types/agent';
 import { parseWorkspaceRequest } from '../../../../packages/shared-types/workspace';
 import type { ThemePreference } from "../../../../packages/shared-types/ipc/desktop";
 
@@ -16,8 +18,10 @@ let mainWindow: BrowserWindow | null = null;
 let rendererURL = "";
 let auth: AuthClient;
 const workspace = new LocalWorkspace(event => {
+  if (event.type === 'reset' || event.type === 'lost') agent.dispose();
   if (mainWindow && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send('desktop:workspace-event', event);
 });
+const agent = new AgentSession(workspace, () => auth?.sessionGeneration ?? -1);
 let authMonitor: ReturnType<typeof setInterval> | undefined;
 let monitoringAuth = false;
 
@@ -94,6 +98,23 @@ app
       return { version: app.getVersion(), theme };
     });
     let workspaceQueue: Promise<unknown> = Promise.resolve();
+    ipcMain.handle('desktop:agent', async (event, ...args: unknown[]) => {
+      validate(event, args, 1);
+      const request = parseAgentRequest(args[0]);
+      if (!auth.hasSession) throw new Error('로그인이 필요합니다.');
+      const session = auth.sessionGeneration;
+      workspace.assertCurrent(request.id);
+      if (request.action === 'stop') return agent.stop(request.id, request.mode);
+      const result = await auth.execute({ action: 'me' });
+      if (!result.ok || !auth.hasSession || session !== auth.sessionGeneration) { agent.dispose(); throw new Error('인증 상태를 확인하세요.'); }
+      workspace.assertCurrent(request.id);
+      switch (request.action) {
+        case 'status': return agent.status(request.id, request.mode);
+        case 'start': return agent.start(request.id, request.mode);
+        case 'analyze': return agent.analyze(request.id, request.mode, request.paths);
+        case 'decide': return agent.decide(request.id, request.mode, request.approval, request.digest, request.accept);
+      }
+    });
     ipcMain.handle('desktop:workspace', async (event, ...args: unknown[]) => {
       validate(event, args, 1);
       const request = parseWorkspaceRequest(args[0]);

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopAPI } from "../../../../packages/shared-types/ipc/desktop";
 
 const api: DesktopAPI = {
+  agent: { execute: request => ipcRenderer.invoke('desktop:agent', request) },
   workspace: {
     pick: () => ipcRenderer.invoke('desktop:workspace', { action: 'pick' }),
     close: id => ipcRenderer.invoke('desktop:workspace', { action: 'close', id }),
