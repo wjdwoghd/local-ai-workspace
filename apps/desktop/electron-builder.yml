@@ -7,6 +7,10 @@ files:
   - dist/**/*
   - package.json
 asar: true
+asarUnpack:
+  - node_modules/node-pty/**/*
+# node-pty 1.1 ships Node-API prebuilds on Windows; no Electron V8 ABI rebuild.
+npmRebuild: false
 win:
   target:
     - target: nsis

@@ -7,17 +7,33 @@ import { pathToFileURL } from "node:url";
 import { createWindow } from "./window";
 import { isTheme, isTrustedURL } from "./security/policy";
 import { AuthClient, serverURL } from "./auth-client";
+import { LocalWorkspace } from './workspace';
+import { parseWorkspaceRequest } from '../../../../packages/shared-types/workspace';
 import type { ThemePreference } from "../../../../packages/shared-types/ipc/desktop";
 
 let theme: ThemePreference = "system";
 let mainWindow: BrowserWindow | null = null;
 let rendererURL = "";
 let auth: AuthClient;
+const workspace = new LocalWorkspace(event => {
+  if (mainWindow && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send('desktop:workspace-event', event);
+});
+let authMonitor: ReturnType<typeof setInterval> | undefined;
+let monitoringAuth = false;
 
 async function openWindow() {
   mainWindow = createWindow();
+  mainWindow.on('close', event => {
+    if (workspace.info && workspace.dirty) {
+      event.preventDefault();
+      mainWindow?.webContents.send('desktop:workspace-event', { id: workspace.info.id, type: 'close-request' });
+    }
+  });
+  mainWindow.webContents.on('render-process-gone', () => workspace.dispose());
+  mainWindow.webContents.on('did-start-navigation', (_event, _url, _inPlace, mainFrame) => { if (mainFrame) workspace.dispose(); });
   mainWindow.on("closed", () => {
     auth.cancelChat();
+    workspace.dispose();
     mainWindow = null;
   });
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
@@ -46,7 +62,16 @@ if (process.env.LOCAL_AI_TEST_PROFILE && !app.isPackaged) {
 app
   .whenReady()
   .then(async () => {
-    auth = new AuthClient(serverURL(process.env.AUTH_SERVER_URL, app.isPackaged));
+    auth = new AuthClient(serverURL(process.env.AUTH_SERVER_URL, app.isPackaged), fetch, () => workspace.dispose());
+    authMonitor = setInterval(() => {
+      if (workspace.info && auth.hasSession && !monitoringAuth) {
+        monitoringAuth = true;
+        const generation = auth.sessionGeneration;
+        void auth.execute({ action: 'me' }).then(result => {
+          if (!result.ok && generation === auth.sessionGeneration) workspace.dispose();
+        }).finally(() => { monitoringAuth = false; });
+      }
+    }, 5000);
     nativeTheme.themeSource = theme;
 
     function validate(
@@ -68,8 +93,57 @@ app
       validate(event, args, 0);
       return { version: app.getVersion(), theme };
     });
+    let workspaceQueue: Promise<unknown> = Promise.resolve();
+    ipcMain.handle('desktop:workspace', async (event, ...args: unknown[]) => {
+      validate(event, args, 1);
+      const request = parseWorkspaceRequest(args[0]);
+      if (!auth.hasSession) throw new Error('로그인이 필요합니다.');
+      const session = auth.sessionGeneration;
+      const current = () => {
+        if (!auth.hasSession || session !== auth.sessionGeneration) throw new Error('인증 상태가 변경되었습니다.');
+        if (request.action !== 'pick') workspace.assertCurrent(request.id);
+      };
+      current();
+      // PTY keystrokes use the authenticated local session; the live session is checked every 5s.
+      if (request.action === 'terminal-write') { workspace.terminalWrite(request.id, request.terminal, request.data); return; }
+      if (request.action === 'terminal-resize') { workspace.terminalResize(request.id, request.terminal, request.cols, request.rows); return; }
+      if (request.action === 'dirty') { workspace.dirty = request.dirty; return; }
+      // Resource release must work even while the server is unreachable or another request is queued.
+      if (request.action === 'terminal-stop') { workspace.terminalStop(); return; }
+      if (request.action === 'close') { workspace.dispose(); return; }
+      if (request.action === 'close-window') { workspace.dispose(); mainWindow?.destroy(); return; }
+      const task = workspaceQueue.catch(() => {}).then(async () => {
+        current();
+        const result = await auth.execute({ action: 'me' });
+        current();
+        if (!result.ok) { workspace.dispose(); throw new Error('로그인 상태를 확인할 수 없습니다. 다시 로그인하세요.'); }
+        switch (request.action) {
+          case 'pick': {
+            const previous = workspace.info?.id;
+            const picked = await dialog.showOpenDialog(mainWindow!, { title: '로컬 프로젝트 열기', properties: ['openDirectory'] });
+            current();
+            if (previous !== workspace.info?.id) throw new Error('작업공간이 변경되었습니다.');
+            if (picked.canceled || picked.filePaths.length !== 1) return null;
+            return workspace.select(picked.filePaths[0]);
+          }
+          case 'list': return workspace.list(request.id, request.path);
+          case 'read': return workspace.read(request.id, request.path);
+          case 'save': return workspace.save(request.id, request.path, request.text, request.version, request.overwrite);
+          case 'terminal-start': return workspace.terminalStart(request.id);
+        }
+      });
+      workspaceQueue = task;
+      try { const result = await task; current(); return result; }
+      catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code) throw new Error(code === 'ENOENT' ? '파일·폴더가 삭제되었거나 연결이 끊겼습니다.' : code === 'EACCES' || code === 'EPERM' ? '접근 권한이 없거나 읽기 전용입니다. 편집 내용은 유지됩니다.' : '파일·터미널 작업에 실패했습니다. 연결과 권한을 확인하세요.');
+        throw error;
+      }
+    });
     ipcMain.handle("desktop:auth", async (event, ...args: unknown[]) => {
       validate(event, args, 1);
+      const op = parseOperation(args[0]);
+      if (op.action === 'logout' || op.action === 'login') workspace.dispose();
       const result = await auth.execute(args[0]);
       const action = (args[0] as { action?: string } | null)?.action;
       if (result.ok && (action === "settings" || action === "saveSettings")) {
@@ -138,3 +212,4 @@ app
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
+app.on('will-quit', () => { clearInterval(authMonitor); workspace.dispose(); });

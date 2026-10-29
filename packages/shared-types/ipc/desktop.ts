@@ -4,6 +4,7 @@ export interface DesktopInfo {
   theme: ThemePreference;
 }
 export interface DesktopAPI {
+  workspace: import('../workspace').WorkspaceAPI;
   getInfo(): Promise<DesktopInfo>;
   setTheme(theme: ThemePreference): Promise<void>;
   auth(operation: import("../auth").Operation): Promise<import("../auth").Result>;

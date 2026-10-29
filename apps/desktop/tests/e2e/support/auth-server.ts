@@ -1,12 +1,14 @@
 // Explicit UI test fixture only. Production server always uses Oracle and never imports this file.
 import { createServer } from "node:http";
+import { createServer as createTLSServer } from 'node:https';
+import { readFile } from 'node:fs/promises';
 import { randomBytes, randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { Page } from "@playwright/test";
 import { parseOperation, type ConversationMeta, type User, type Theme } from "../../../../../packages/shared-types/auth";
 import { parseChat, type ChatMessage } from '../../../../../packages/shared-types/chat';
 import { parseUpload, type Citation, type DocumentMeta } from '../../../../../packages/shared-types/search';
-export async function authFixture(ai = false) {
+export async function authFixture(ai = false, tls?: { cert: string; key: string }) {
   const password = randomBytes(24).toString("hex");
   const users = ["alice", "bob", "admin"].map(username => ({ id: randomUUID(), username, role: username === "admin" ? "admin" : "user", active: true } as User));
   const sessions = new Map<string, User>();
@@ -15,7 +17,8 @@ export async function authFixture(ai = false) {
   const messages = new Map<string, ChatMessage[]>();
   const contexts: string[][] = [];
   const documents = new Map<string, DocumentMeta & { text: string }>();
-  const server = createServer(async (req, res) => {
+  const server = tls ? createTLSServer({ cert: await readFile(tls.cert), key: await readFile(tls.key) }) : createServer();
+  server.on('request', async (req, res) => {
     res.setHeader("Content-Type", "application/json");
     const send = (status: number, data?: unknown) => { res.statusCode = status; res.end(JSON.stringify(status === 200 ? { ok: true, data } : { ok: false, status })); };
     try {
@@ -95,7 +98,7 @@ export async function authFixture(ai = false) {
   });
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   return {
-    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    url: `${tls ? 'https' : 'http'}://127.0.0.1:${(server.address() as AddressInfo).port}`,
     password,
     contexts,
     expire: () => sessions.clear(),

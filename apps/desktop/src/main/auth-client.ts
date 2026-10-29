@@ -12,10 +12,16 @@ export function serverURL(value: string | undefined, packaged: boolean) {
   return new URL("/api/action", url).href;
 }
 export class AuthClient {
-  private credential: string | undefined;
+  private token: string | undefined;
+  sessionGeneration = 0;
+  get hasSession() { return !!this.token; }
+  private get credential() { return this.token; }
+  private set credential(value: string | undefined) {
+    if (value !== this.token) { this.token = value; this.sessionGeneration++; this.onSessionChange(); }
+  }
   private queue = Promise.resolve();
   private streamController?: AbortController;
-  constructor(private url: string, private transport: typeof fetch = fetch) {}
+  constructor(private url: string, private transport: typeof fetch = fetch, private onSessionChange: () => void = () => {}) {}
   execute(raw: unknown): Promise<Result> {
     let op: Operation;
     try { op = parseOperation(raw); }

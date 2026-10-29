@@ -5,6 +5,7 @@ import type { ChatMessage, ChatStatus } from '../../../../packages/shared-types/
 import type { User, Settings, ConversationMeta } from "../../../../packages/shared-types/auth";
 import { request } from "./api";
 import { Documents, Sources } from './Documents';
+import { Workspace } from './Workspace';
 
 const themes: {
   value: ThemePreference;
@@ -42,7 +43,8 @@ export default function App({ user, initial }: { user: User; initial: { settings
   const sending = useRef(false);
   const alive = useRef(true);
   const [activeId, setActiveId] = useState(conversations[0].id);
-  const [page, setPage] = useState<"chat" | "settings" | "documents">("chat");
+  const [page, setPage] = useState<"chat" | "settings" | "documents" | "workspace">("chat");
+  useEffect(() => { const show = () => setPage('workspace'); window.addEventListener('workspace-focus', show); return () => window.removeEventListener('workspace-focus', show); }, []);
   const [webSearch, setWebSearch] = useState(false);
   const [documentSearch, setDocumentSearch] = useState(false);
   const [draft, setDraft] = useState("");
@@ -206,6 +208,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
             <span aria-hidden="true">▤</span> 채팅
           </button>
           <button className={page === 'documents' ? 'nav-item selected' : 'nav-item'} aria-current={page === 'documents' ? 'page' : undefined} onClick={() => setPage('documents')}><span aria-hidden="true">⌕</span> 웹·파일 검색</button>
+          <button className={page === 'workspace' ? 'nav-item selected' : 'nav-item'} aria-current={page === 'workspace' ? 'page' : undefined} onClick={() => setPage('workspace')}><span aria-hidden="true">⌘</span> 로컬 개발 환경</button>
         </nav>
         <div className="history-label">
           내 대화 <span>{conversations.length}</span>
@@ -256,7 +259,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
       <main id="main" tabIndex={-1}>
         <header className="topbar">
           <div>
-            {page === "chat" ? "워크스페이스 / 채팅" : page === 'documents' ? '워크스페이스 / 웹·파일 검색' : "워크스페이스 / 설정"}
+            {page === "chat" ? "워크스페이스 / 채팅" : page === 'workspace' ? '워크스페이스 / 로컬 개발 환경' : page === 'documents' ? '워크스페이스 / 웹·파일 검색' : "워크스페이스 / 설정"}
           </div>
           <span className="demo-badge">
             <span className="status-dot" /> {demo ? 'DEMO' : 'AI'}
@@ -267,7 +270,8 @@ export default function App({ user, initial }: { user: User; initial: { settings
             {error}
           </div>
         )}
-        {page === 'documents' ? <Documents user={user} /> : page === "chat" ? (
+        <div className="workspace-container" hidden={page !== 'workspace'}><Workspace /></div>
+        {page === 'workspace' ? null : page === 'documents' ? <Documents user={user} /> : page === "chat" ? (
           <section className="chat-page" aria-label="채팅 화면">
             <div className="chat-heading">
               <div>
@@ -474,7 +478,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
                   <span data-testid="app-version">
                     {version || "불러오는 중…"}
                   </span>{" "}
-                  · 4단계 웹·파일 검색
+                  · 5단계 로컬 개발 환경
                 </p>
               </div>
               <span className="pill">{demo ? '로컬 데모' : 'AI 채팅'}</span>

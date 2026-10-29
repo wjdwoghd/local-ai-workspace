@@ -2,6 +2,24 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopAPI } from "../../../../packages/shared-types/ipc/desktop";
 
 const api: DesktopAPI = {
+  workspace: {
+    pick: () => ipcRenderer.invoke('desktop:workspace', { action: 'pick' }),
+    close: id => ipcRenderer.invoke('desktop:workspace', { action: 'close', id }),
+    closeWindow: id => ipcRenderer.invoke('desktop:workspace', { action: 'close-window', id }),
+    list: (id, path) => ipcRenderer.invoke('desktop:workspace', { action: 'list', id, path }),
+    read: (id, path) => ipcRenderer.invoke('desktop:workspace', { action: 'read', id, path }),
+    save: (id, path, text, version, overwrite) => ipcRenderer.invoke('desktop:workspace', { action: 'save', id, path, text, version, overwrite }),
+    dirty: (id, dirty) => ipcRenderer.invoke('desktop:workspace', { action: 'dirty', id, dirty }),
+    terminalStart: id => ipcRenderer.invoke('desktop:workspace', { action: 'terminal-start', id }),
+    terminalStop: id => ipcRenderer.invoke('desktop:workspace', { action: 'terminal-stop', id }),
+    terminalWrite: (id, terminal, data) => ipcRenderer.invoke('desktop:workspace', { action: 'terminal-write', id, terminal, data }),
+    terminalResize: (id, terminal, cols, rows) => ipcRenderer.invoke('desktop:workspace', { action: 'terminal-resize', id, terminal, cols, rows }),
+    onEvent: callback => {
+      const listener = (_event: Electron.IpcRendererEvent, data: Parameters<typeof callback>[0]) => callback(data);
+      ipcRenderer.on('desktop:workspace-event', listener);
+      return () => ipcRenderer.removeListener('desktop:workspace-event', listener);
+    },
+  },
   getInfo: () => ipcRenderer.invoke("desktop:info"),
   setTheme: (theme) => ipcRenderer.invoke("desktop:theme", theme),
   auth: (operation) => ipcRenderer.invoke("desktop:auth", operation),

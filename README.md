@@ -20,3 +20,5 @@ Electron + React + TypeScript 데스크톱과 Oracle 인증 서버, 개인 AI �
 `pnpm-workspace.yaml`은 `apps/*`와 `packages/*`를 워크스페이스 경로로 지정합니다. 공통 패키지의 `package.json`은 각 패키지 구현 시 추가합니다.
 
 [4단계 설정·사용 안내](docs/development/search-stage-4.md)와 [검증 결과](docs/development/search-stage-4-validation.md)를 참고하세요. 현재 서버에는 스키마 3 마이그레이션이 필요합니다. 문서 등록·검색은 API 키 없이 사용할 수 있으며, 실제 AI 답변과 웹 검색에는 서버 키 및 해당 모델·도구 접근 권한이 필요합니다.
+
+[5단계 로컬 프로젝트·Monaco·터미널 사용 안내](docs/development/workspace-stage-5.md)와 [검증 결과](docs/development/workspace-stage-5-validation.md)를 참고하세요. 로그인 후 로컬 폴더를 열어 파일을 편집·저장하고 외부 변경과 diff를 확인할 수 있습니다. 실제 PowerShell 터미널은 OS 사용자 권한으로 실행되며 프로젝트 밖에도 접근합니다. 로컬 파일·터미널 출력은 자동 업로드되지 않습니다.

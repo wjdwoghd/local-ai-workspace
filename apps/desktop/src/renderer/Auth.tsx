@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ConversationMeta, Settings, User } from "../../../../packages/shared-types/auth";
 import App from "./App";
 import { request } from "./api";
+import { confirmWorkspaceLeave } from './workspace-guard';
 
 export default function Auth() {
   const [user, setUser] = useState<User | null>(null);
@@ -25,6 +26,7 @@ export default function Auth() {
     return () => { clearInterval(timer); window.removeEventListener("focus", check); };
   }, [user]);
   async function logout() {
+    if (!await confirmWorkspaceLeave()) return;
     clear(); setBusy(true);
     try { await request({ action: "logout" }); }
     catch { setError("이 기기의 세션을 제거했습니다. 서버 로그아웃은 확인되지 않았습니다. 관리자에게 세션 폐기를 요청하세요."); }

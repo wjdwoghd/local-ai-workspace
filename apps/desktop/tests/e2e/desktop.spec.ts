@@ -66,7 +66,7 @@ test("채팅·설정·테마 재실행 복원과 Electron 보안", async () => {
         node: typeof (window as unknown as { require?: unknown }).require,
         api: Object.keys(window.desktop).sort(),
       })),
-    ).toEqual({ node: "undefined", api: ["auth", "cancelChat", "getInfo", "importDocument", "openSource", "setTheme", "streamChat"] });
+    ).toEqual({ node: "undefined", api: ["auth", "cancelChat", "getInfo", "importDocument", "openSource", "setTheme", "streamChat", "workspace"] });
     await expect(page.evaluate(() => window.desktop.openSource('file:///C:/secret'))).rejects.toThrow();
     await expect(page.evaluate(() => window.desktop.openSource('javascript:alert(1)'))).rejects.toThrow();
     await expect(page.evaluate(() => window.desktop.importDocument('../forged'))).rejects.toThrow();
