@@ -1,0 +1,8 @@
+appId: com.localai.workspace
+productName: Local AI Workspace
+directories:
+  buildResources: resources
+  output: release
+files:
+  - dist/**/*
+  - package.json
