@@ -11,3 +11,6 @@ coverage/
 !.env.example
 .DS_Store
 Thumbs.db
+.tools/
+test-results/
+playwright-report/

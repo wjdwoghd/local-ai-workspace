@@ -2,5 +2,15 @@
   "name": "local-ai-workspace",
   "version": "0.0.0",
   "private": true,
-  "description": "Local AI workspace monorepo"
+  "description": "Local AI workspace monorepo",
+  "packageManager": "pnpm@10.34.5",
+  "scripts": {
+    "dev": "pnpm --filter @local-ai-workspace/desktop dev",
+    "typecheck": "pnpm --filter @local-ai-workspace/desktop typecheck",
+    "build": "pnpm --filter @local-ai-workspace/desktop build",
+    "test": "pnpm --filter @local-ai-workspace/desktop test",
+    "test:e2e": "pnpm --filter @local-ai-workspace/desktop test:e2e",
+    "package:win": "pnpm --filter @local-ai-workspace/desktop package:win"
+  },
+  "pnpm": { "onlyBuiltDependencies": ["electron", "esbuild"] }
 }

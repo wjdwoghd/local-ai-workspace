@@ -6,3 +6,17 @@ directories:
 files:
   - dist/**/*
   - package.json
+asar: true
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: Local-AI-Workspace-${version}-Setup.${ext}
+portable:
+  artifactName: Local-AI-Workspace-${version}-Portable.${ext}
