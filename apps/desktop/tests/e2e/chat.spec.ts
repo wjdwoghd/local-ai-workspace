@@ -1,0 +1,52 @@
+import { test, expect, _electron as electron } from '@playwright/test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { authFixture, login } from './support/auth-server';
+
+test('streaming, abort, independent contexts, saved history restore and account isolation', async () => {
+  const fixture = await authFixture(true);
+  const profile = await mkdtemp(join(tmpdir(), 'local-ai-chat-'));
+  const environment = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined && e[0] !== 'ELECTRON_RUN_AS_NODE'));
+  const app = await electron.launch({ args: [resolve('.')], env: { ...environment, LOCAL_AI_TEST_PROFILE: profile, AUTH_SERVER_URL: fixture.url } });
+  try {
+    const page = await app.firstWindow();
+    await login(page, 'alice', fixture.password, false);
+    await page.getByLabel('메시지 입력').fill('첫 번째 비밀');
+    await page.getByLabel('메시지 입력').press('Enter');
+    await expect(page.getByRole('log')).toContainText('테스트 스트리밍 응답');
+    await expect(page.getByRole('button', { name: '응답 중단' })).toHaveCount(0);
+    await page.getByRole('button', { name: '새 대화' }).click();
+    await expect(page.getByRole('log')).toHaveCount(0);
+    await expect(page.getByLabel('메시지 입력')).toBeEnabled();
+    await page.getByLabel('메시지 입력').fill('두 번째 비밀');
+    await page.getByLabel('메시지 입력').press('Enter');
+    await expect(page.getByRole('log')).toContainText('테스트 스트리밍 응답');
+    await expect(page.getByRole('button', { name: '응답 중단' })).toHaveCount(0);
+    expect(fixture.contexts.slice(0, 2)).toEqual([['첫 번째 비밀'], ['두 번째 비밀']]);
+    await page.getByLabel('메시지 입력').fill('중단 테스트');
+    await page.getByLabel('메시지 입력').press('Enter');
+    await expect(page.getByRole('button', { name: '응답 중단' })).toBeVisible();
+    await page.getByRole('button', { name: '응답 중단' }).click();
+    await expect(page.getByRole('alert')).toContainText('중단');
+    await expect(page.getByRole('log')).not.toContainText('중단 테스트');
+    await expect(page.getByLabel('메시지 입력')).toBeEnabled();
+    await page.getByRole('button', { name: '로그아웃', exact: true }).click();
+    await login(page, 'bob', fixture.password, false);
+    await expect(page.getByRole('log')).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: '대화 목록' })).not.toContainText('비밀');
+    await page.getByRole('button', { name: '로그아웃', exact: true }).click();
+    await login(page, 'alice', fixture.password, false);
+    await page.getByRole('navigation', { name: '대화 목록' }).getByRole('button', { name: '첫 번째 비밀' }).click();
+    await expect(page.getByRole('log')).toContainText('첫 번째 비밀');
+    await expect(page.getByRole('log')).toContainText('실제 AI 응답');
+    await page.getByLabel('메시지 입력').fill('후속 질문');
+    await page.getByLabel('메시지 입력').press('Enter');
+    await expect(page.getByRole('button', { name: '응답 중단' })).toHaveCount(0);
+    await expect(page.getByRole('log')).toContainText('후속 질문');
+    await expect.poll(() => fixture.contexts.at(-1)).toEqual(['첫 번째 비밀', '테스트 스트리밍 응답', '후속 질문']);
+    await page.getByRole('button', { name: '대화 삭제', exact: true }).click();
+    await expect(page.getByRole('navigation', { name: '대화 목록' })).not.toContainText('첫 번째 비밀');
+    await page.screenshot({ path: 'test-results/chat-stage-3.png' });
+  } finally { await app.close(); await fixture.close(); await rm(profile, { recursive: true, force: true }); }
+});

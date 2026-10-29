@@ -4,6 +4,7 @@ import type { Operation, User, ConversationMeta, Settings } from "../../../packa
 import type { Config } from "./config";
 import { type DB, rows } from "./database/oracle";
 import { ApiError, audit, digest, hashPassword, token, verifyPassword } from "./security";
+import { history } from './chat-store';
 
 interface UserRow { ID: string; USERNAME: string; ROLE: User["role"]; ACTIVE: number; PASSWORD_HASH: string }
 const publicUser = (u: UserRow): User => ({ id: u.ID, username: u.USERNAME, role: u.ROLE, active: u.ACTIVE === 1 });
@@ -41,6 +42,9 @@ export function service(db: DB, config: Config) {
     return publicUser(u);
   }
   return {
+    withUser<T>(credential: string | undefined, work: (c: oracledb.Connection, user: User) => Promise<T>): Promise<T> {
+      return db.transaction(async c => work(c, await authenticate(c, credential)));
+    },
     async bootstrap(name: string, password: string) {
       const hash = await hashPassword(password);
       return db.transaction(async c => {
@@ -74,6 +78,13 @@ export function service(db: DB, config: Config) {
         const owner = { owner: user.id };
         if (["users", "createUser", "disableUser", "resetPassword"].includes(op.action) && user.role !== "admin") throw new ApiError(403, "관리자 권한이 필요합니다.");
         switch (op.action) {
+          case 'chatStatus': return { configured: Boolean(config.openaiKey), models: config.models,
+            message: config.openaiKey ? '실제 AI 모드 · 전송 시 계정의 모델 접근 권한을 확인합니다.' : '서버 API 키 설정이 필요합니다. 관리자에게 문의하세요.' };
+          case 'messages': {
+            const [owned] = await rows(c, 'SELECT id FROM s2_conversations WHERE id = :id AND user_id = :owner', { ...owner, id: op.id });
+            if (!owned) throw missing();
+            return history(c, op.id);
+          }
           case "me": return user;
           case "logout":
             await c.execute("DELETE FROM s2_sessions WHERE token_hash = :hash", { hash: digest(config.sessionSecret, credential!) }); return null;

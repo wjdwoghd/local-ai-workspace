@@ -26,7 +26,10 @@ test("채팅·설정·테마 재실행 복원과 Electron 보안", async () => {
   let app = await launch();
   try {
     let page = await app.firstWindow();
-    await login(page, "alice", fixture.password);
+    await login(page, "alice", fixture.password, false);
+    await expect(page.getByRole('button', { name: '메시지 보내기' })).toBeDisabled();
+    await expect(page.locator('.disclaimer')).toContainText('서버 API 키 설정이 필요');
+    await page.getByLabel('모델 선택', { exact: true }).selectOption('demo');
     await expect(
       page.getByRole("heading", { name: "새로운 대화" }),
     ).toBeVisible();
@@ -63,7 +66,7 @@ test("채팅·설정·테마 재실행 복원과 Electron 보안", async () => {
         node: typeof (window as unknown as { require?: unknown }).require,
         api: Object.keys(window.desktop).sort(),
       })),
-    ).toEqual({ node: "undefined", api: ["auth", "getInfo", "setTheme"] });
+    ).toEqual({ node: "undefined", api: ["auth", "cancelChat", "getInfo", "setTheme", "streamChat"] });
     await expect(
       page.evaluate(() => window.desktop.setTheme("invalid" as never)),
     ).rejects.toThrow();

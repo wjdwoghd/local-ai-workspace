@@ -17,6 +17,10 @@ describe("security primitives and configuration", () => {
     const env = { SESSION_SECRET: token(), ORACLE_USER: "test", ORACLE_PASSWORD: token(), ORACLE_CONNECT_STRING: "test", NODE_ENV: "production" };
     expect(() => config(env)).toThrow(/HTTPS/);
     expect(config({ ...env, HTTPS_PROXY_CONFIRMED: "true" }).production).toBe(true);
+    const valid = { ...env, HTTPS_PROXY_CONFIRMED: 'true' };
+    expect(config(valid)).toMatchObject({ openaiKey: '', models: [{ id: 'gpt-6-astra', label: 'Astra' }] });
+    expect(() => config({ ...valid, OPENAI_ADDITIONAL_MODELS: '[{"id":"demo","label":"fake"}]' })).toThrow();
+    expect(() => config({ ...valid, OPENAI_ADDITIONAL_MODELS: '[{"id":"gpt-6-astra","label":"duplicate"}]' })).toThrow();
     expect(() => config({ ...env, HTTPS_PROXY_CONFIRMED: "true", PORT: "0" })).toThrow();
   });
   it("rejects forged owners, arbitrary actions, and malformed input", () => {

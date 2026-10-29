@@ -2,10 +2,13 @@ import Fastify from "fastify";
 import { InputError, parseOperation } from "../../../packages/shared-types/auth";
 import { ApiError, audit } from "./security";
 import type { service } from "./service";
-export function app(auth: Pick<ReturnType<typeof service>, "execute">) {
+import { parseChat } from '../../../packages/shared-types/chat';
+import type { chat } from './chat';
+import { Readable } from 'node:stream';
+export function app(auth: Pick<ReturnType<typeof service>, "execute">, ai?: ReturnType<typeof chat>) {
   // Never enable request logging: credentials are in the authorization header / login body.
   // No trustProxy: X-Forwarded-* supplied by clients must not bypass limits.
-  const server = Fastify({ logger: false, bodyLimit: 8192, requestTimeout: 20000, connectionTimeout: 20000 });
+  const server = Fastify({ logger: false, bodyLimit: 32768, requestTimeout: 20000, connectionTimeout: 20000 });
   server.addHook("onSend", async (_req, reply) => {
     reply.header("Cache-Control", "no-store");
     reply.header("X-Content-Type-Options", "nosniff");
@@ -24,6 +27,25 @@ export function app(auth: Pick<ReturnType<typeof service>, "execute">) {
     const credential = header?.startsWith("Bearer ") ? header.slice(7) : undefined;
     try { return { ok: true, data: await auth.execute(op, credential, request.ip) }; }
     catch (error) { if (error instanceof ApiError && error.status === 429) reply.header("Retry-After", "900"); throw error; }
+  });
+  server.post('/api/chat', async (request, reply) => {
+    const input = parseChat(request.body);
+    if (!ai) throw new ApiError(503, 'AI 서비스 설정이 필요합니다.');
+    const header = request.headers.authorization;
+    const credential = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
+    const run = await ai.start(input, credential);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120_000);
+    const close = () => controller.abort();
+    reply.raw.once('close', close);
+    async function* body() {
+      try {
+        for await (const event of run.events(controller.signal)) {
+          yield `data: ${JSON.stringify(event)}\n\n`;
+        }
+      } finally { clearTimeout(timeout); reply.raw.off('close', close); controller.abort(); }
+    }
+    return reply.type('text/event-stream').header('X-Accel-Buffering', 'no').send(Readable.from(body()));
   });
   server.setNotFoundHandler((_request, reply) => reply.code(404).send({ ok: false, status: 404, message: "리소스를 찾을 수 없습니다." }));
   return server;

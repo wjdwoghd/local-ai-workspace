@@ -8,6 +8,8 @@ import { migrate } from "../../src/database/migrate";
 import { service } from "../../src/service";
 import { app } from "../../src/app";
 import { digest, token } from "../../src/security";
+import { chatStore } from '../../src/chat-store';
+import type { ChatMessage } from '../../../../packages/shared-types/chat';
 
 const enabled = ["TEST_ORACLE_USER", "TEST_ORACLE_PASSWORD", "TEST_ORACLE_CONNECT_STRING", "TEST_ORACLE_CONFIRM_SCHEMA"].some(key => Boolean(process.env[key]));
 it.skipIf(!enabled)("real Oracle: ten users, ownership CRUD, RBAC, session revocation, expiry, throttling, transactions", async () => {
@@ -21,6 +23,7 @@ it.skipIf(!enabled)("real Oracle: ten users, ownership CRUD, RBAC, session revoc
   const pool = await poolFor(c);
   const db = database(pool);
   const auth = service(db, c);
+  const store = chatStore(auth);
   const server = app(auth);
   const run = randomUUID().slice(0, 8);
   const adminName = `admin.${run}`;
@@ -72,6 +75,8 @@ it.skipIf(!enabled)("real Oracle: ten users, ownership CRUD, RBAC, session revoc
       expect(await call({ action: "conversations" }, a.credential)).toEqual([a.meta]);
       expect(await call<Settings>({ action: "settings" }, a.credential)).toEqual({ theme: i % 2 ? "dark" : "light" });
       for (const credential of [a.credential, admin.credential]) {
+        await call({ action: 'messages', id: other.meta.id }, credential, 404);
+        await expect(store.prepare({ id: other.meta.id, text: 'forged', model: 'gpt-6-astra' }, credential)).rejects.toMatchObject({ status: 404 });
         await call({ action: "getConversation", id: other.meta.id }, credential, 404);
         await call({ action: "updateConversation", id: other.meta.id, title: "stolen" }, credential, 404);
         await call({ action: "deleteConversation", id: other.meta.id }, credential, 404);
@@ -80,9 +85,23 @@ it.skipIf(!enabled)("real Oracle: ten users, ownership CRUD, RBAC, session revoc
       await call({ action: "createUser", username: `forged.${run}`, password, role: "admin" }, a.credential, 403);
       await call({ action: "disableUser", id: other.user.id }, a.credential, 403);
       await call({ action: "resetPassword", id: other.user.id, password }, a.credential, 403);
+      const input = { id: a.meta.id, text: `private turn ${i}`, model: 'gpt-6-astra' };
+      expect(await call({ action: 'messages', id: a.meta.id }, a.credential)).toEqual([]);
+      const prepared = await store.prepare(input, a.credential);
+      expect(prepared.messages).toEqual([]);
+      // A separate service instance must see the DB lease, including after process restart.
+      await expect(chatStore(service(db, c)).prepare(input, a.credential)).rejects.toMatchObject({ status: 409 });
+      await expect(store.finish(input, randomUUID(), 'forged finish', a.credential)).rejects.toMatchObject({ status: 409 });
+      await store.finish(input, prepared.run, `private answer ${i}`, a.credential);
+      const saved = await call<ChatMessage[]>({ action: 'messages', id: a.meta.id }, a.credential);
+      expect(saved.map(m => m.text)).toEqual([input.text, `private answer ${i}`]);
+      const restored = await chatStore(service(db, c)).prepare(input, a.credential);
+      expect(restored.messages).toEqual(saved);
+      await store.release(input.id, restored.run, a.credential);
       await call({ action: "updateConversation", id: a.meta.id, title: "owned" }, a.credential);
       expect(await call({ action: "getConversation", id: a.meta.id }, a.credential)).toMatchObject({ title: "owned" });
       await call({ action: "deleteConversation", id: a.meta.id }, a.credential);
+      expect(await db.transaction(connection => rows(connection, 'SELECT id FROM s3_messages WHERE conversation_id = :id', { id: a.meta.id }))).toEqual([]);
       await call({ action: "getConversation", id: a.meta.id }, a.credential, 404);
       await call({ action: "resetSettings" }, a.credential);
       expect(await call({ action: "settings" }, a.credential)).toEqual({ theme: "system" });

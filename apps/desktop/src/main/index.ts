@@ -14,6 +14,7 @@ let auth: AuthClient;
 async function openWindow() {
   mainWindow = createWindow();
   mainWindow.on("closed", () => {
+    auth.cancelChat();
     mainWindow = null;
   });
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
@@ -77,6 +78,17 @@ app
         nativeTheme.themeSource = theme;
       }
       return result;
+    });
+    ipcMain.handle('desktop:chat', async (event, ...args: unknown[]) => {
+      validate(event, args, 2);
+      const requestId = args[0];
+      if (typeof requestId !== 'string' || !/^[a-z0-9-]{1,80}$/.test(requestId)) throw new Error('잘못된 요청 ID');
+      return auth.stream(args[1], item => {
+        if (!event.sender.isDestroyed()) event.sender.send('desktop:chat-event', { requestId, event: item });
+      });
+    });
+    ipcMain.handle('desktop:chat-cancel', (event, ...args: unknown[]) => {
+      validate(event, args, 0); auth.cancelChat();
     });
     ipcMain.handle("desktop:theme", async (event, ...args: unknown[]) => {
       validate(event, args, 1);

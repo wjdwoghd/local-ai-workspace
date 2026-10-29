@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ThemePreference } from "../../../../packages/shared-types/ipc/desktop";
 import { demoReply } from "./features/chat/demo";
-import type { Conversation } from "./features/chat/demo";
+import type { ChatMessage, ChatStatus } from '../../../../packages/shared-types/chat';
 import type { User, Settings, ConversationMeta } from "../../../../packages/shared-types/auth";
 import { request } from "./api";
 
@@ -32,7 +32,14 @@ const themes: {
 ];
 
 export default function App({ user, initial }: { user: User; initial: { settings: Settings; conversations: ConversationMeta[] } }) {
-  const [conversations, setConversations] = useState<Conversation[]>(() => initial.conversations.map(c => ({ ...c, messages: [] })));
+  const [conversations, setConversations] = useState<(ConversationMeta & { messages: ChatMessage[] })[]>(() => initial.conversations.map(c => ({ ...c, messages: [] })));
+  const [demoMessages, setDemoMessages] = useState<Record<string, ChatMessage[]>>({});
+  const [model, setModel] = useState('');
+  const [status, setStatus] = useState<ChatStatus>();
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
+  const alive = useRef(true);
   const [activeId, setActiveId] = useState(conversations[0].id);
   const [page, setPage] = useState<"chat" | "settings">("chat");
   const [draft, setDraft] = useState("");
@@ -44,7 +51,26 @@ export default function App({ user, initial }: { user: User; initial: { settings
   const [error, setError] = useState("");
   const input = useRef<HTMLTextAreaElement>(null);
   const end = useRef<HTMLDivElement>(null);
-  const current = conversations.find((item) => item.id === activeId)!;
+  const stored = conversations.find((item) => item.id === activeId)!;
+  const demo = model === 'demo';
+  const current = demo ? { ...stored, messages: demoMessages[activeId] ?? [] } : stored;
+
+  useEffect(() => {
+    alive.current = true;
+    void request<ChatStatus>({ action: 'chatStatus' }).then(s => { if (alive.current) { setStatus(s); setModel(value => value || s.models[0]?.id || ''); } }).catch(e => { if (alive.current) setError(e.message); });
+    return () => { alive.current = false; void window.desktop.cancelChat(); };
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true); setError('');
+    request<ChatMessage[]>({ action: 'messages', id: activeId }).then(messages => {
+      if (!cancelled) {
+        setConversations(items => items.map(c => c.id === activeId ? { ...c, messages } : c));
+        setLoading(false);
+      }
+    }).catch(e => { if (!cancelled) { setError(e.message); setLoading(true); } });
+    return () => { cancelled = true; };
+  }, [activeId]);
 
   useEffect(() => {
     window.desktop
@@ -69,9 +95,10 @@ export default function App({ user, initial }: { user: User; initial: { settings
   }, [theme]);
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth" });
-  }, [current.messages.length, page, activeId]);
+  }, [current.messages, page, activeId]);
 
   async function newChat() {
+    if (sending.current) return;
     try {
       const meta = await request<ConversationMeta>({ action: "createConversation", title: "새 대화" });
       const chat = { ...meta, messages: [] };
@@ -82,30 +109,50 @@ export default function App({ user, initial }: { user: User; initial: { settings
   }
   async function send(text = draft) {
     text = text.trim();
-    if (!text || text.length > 4000) return;
-    try { await request({ action: "updateConversation", id: activeId, title: current.messages.length ? current.title : text.slice(0, 28) }); }
-    catch (e) { setError((e as Error).message); return; }
-    setConversations((items) =>
-      items.map((item) =>
-        item.id !== activeId
-          ? item
-          : {
-              ...item,
-              title: item.messages.length ? item.title : text.slice(0, 28),
-              messages: [
-                ...item.messages,
-                { id: crypto.randomUUID(), role: "user", text },
-                {
-                  id: crypto.randomUUID(),
-                  role: "assistant",
-                  text: demoReply(text),
-                },
-              ],
-            },
-      ),
-    );
-    setDraft("");
-    input.current?.focus();
+    if (!text || text.length > 4000 || sending.current || loading || (!demo && !status?.configured)) return;
+    sending.current = true; setBusy(true); setError('');
+    const id = activeId;
+    const before = stored.messages;
+    try {
+      if (demo) {
+        const title = current.messages.length ? current.title : text.slice(0, 28);
+        await request({ action: 'updateConversation', id, title });
+        setConversations(items => items.map(c => c.id === id ? { ...c, title } : c));
+        setDemoMessages(items => ({ ...items, [id]: [...(items[id] ?? []),
+          { id: crypto.randomUUID(), role: 'user', text, model: 'demo' },
+          { id: crypto.randomUUID(), role: 'assistant', text: demoReply(text), model: 'demo' }] }));
+        setDraft(''); return;
+      }
+      const assistantId = crypto.randomUUID();
+      setConversations(items => items.map(c => c.id === id ? { ...c, messages: [...before,
+        { id: crypto.randomUUID(), role: 'user', text, model },
+        { id: assistantId, role: 'assistant', text: '', model }] } : c));
+      setDraft('');
+      const result = await window.desktop.streamChat({ id, text, model }, event => {
+        if (alive.current && event.type === 'delta') setConversations(items => items.map(c => c.id === id ? {
+          ...c, messages: c.messages.map(m => m.id === assistantId ? { ...m, text: m.text + event.text } : m),
+        } : c));
+      });
+      if (!alive.current) return;
+      if (!result.ok) {
+        if (result.status === 401) window.dispatchEvent(new Event('session-expired'));
+        throw new Error(result.message);
+      }
+      const messages = await request<ChatMessage[]>({ action: 'messages', id });
+      const meta = await request<ConversationMeta>({ action: 'getConversation', id });
+      if (alive.current) setConversations(items => items.map(c => c.id === id ? { ...meta, messages } : c));
+    } catch (e) {
+      if (alive.current) {
+        setError((e as Error).message); setDraft(text);
+        // Reconcile a lost final event: the server may already have committed the turn.
+        try {
+          const messages = await request<ChatMessage[]>({ action: 'messages', id });
+          if (alive.current) setConversations(items => items.map(c => c.id === id ? { ...c, messages } : c));
+        } catch {
+          if (alive.current) { setLoading(true); setConversations(items => items.map(c => c.id === id ? { ...c, messages: before } : c)); }
+        }
+      }
+    } finally { sending.current = false; if (alive.current) setBusy(false); }
   }
   async function changeTheme(value: ThemePreference) {
     setSaving(true);
@@ -143,7 +190,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
             Local AI<span>WORKSPACE</span>
           </div>
         </div>
-        <button className="new-chat" onClick={newChat}>
+        <button className="new-chat" onClick={newChat} disabled={busy}>
           <span aria-hidden="true">＋</span> 새 대화 <kbd>↵</kbd>
         </button>
         <nav aria-label="주요 메뉴">
@@ -162,6 +209,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
           {conversations.map((chat) => (
             <button
               key={chat.id}
+              disabled={busy}
               className={`history-item ${page === "chat" && chat.id === activeId ? "active" : ""}`}
               aria-current={
                 page === "chat" && chat.id === activeId ? "true" : undefined
@@ -179,8 +227,8 @@ export default function App({ user, initial }: { user: User; initial: { settings
         </nav>
         <div className="sidebar-bottom">
           <div className="local-note">
-            <span className="status-dot" /> 로컬 데모 모드
-            <p>Astra · 실제 AI 연결 없음</p>
+            <span className="status-dot" /> {demo ? '로컬 데모 모드' : 'AI 채팅'}
+            <p>{demo ? 'Astra · 실제 AI 연결 없음' : status?.message || 'AI 설정 확인 중…'}</p>
           </div>
           <button
             className={`nav-item ${page === "settings" ? "selected" : ""}`}
@@ -206,7 +254,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
             {page === "chat" ? "워크스페이스 / 채팅" : "워크스페이스 / 설정"}
           </div>
           <span className="demo-badge">
-            <span className="status-dot" /> DEMO
+            <span className="status-dot" /> {demo ? 'DEMO' : 'AI'}
           </span>
         </header>
         {error && (
@@ -223,8 +271,13 @@ export default function App({ user, initial }: { user: User; initial: { settings
                 </h1>
                 <p>생각을 정리하는 나만의 공간</p>
               </div>
-              <span className="pill">로컬 데모</span>
-              <button onClick={async () => {
+              <label className="model-picker">모델 선택
+                <select aria-label="모델 선택" value={model} disabled={busy} onChange={e => { setModel(e.target.value); setError(''); }}>
+                  {(status?.models ?? [{ id: '', label: 'Astra · 설정 확인 중' }]).map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                  <option value="demo">Astra · 로컬 데모</option>
+                </select>
+              </label>
+              <button disabled={busy} onClick={async () => {
                 try {
                   let remaining = conversations.filter(c => c.id !== activeId);
                   // Create a replacement first so a failed request never leaves an empty UI.
@@ -237,7 +290,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
             <div
               className={`message-scroll ${current.messages.length ? "" : "empty-scroll"}`}
             >
-              {current.messages.length === 0 ? (
+              {loading ? <p className="chat-loading">대화를 불러오는 중… <button onClick={() => { void request<ChatMessage[]>({ action: 'messages', id: activeId }).then(messages => { setConversations(items => items.map(c => c.id === activeId ? { ...c, messages } : c)); setLoading(false); setError(''); }).catch(e => setError(e.message)); }}>다시 불러오기</button></p> : current.messages.length === 0 ? (
                 <div className="welcome">
                   <div className="welcome-icon" aria-hidden="true">
                     ✳
@@ -266,7 +319,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
                         text: "어떤 기능을 사용할 수 있어?",
                       },
                     ].map((item) => (
-                      <button key={item.title} onClick={() => send(item.text)}>
+                      <button key={item.title} disabled={busy || (!demo && !status?.configured)} onClick={() => send(item.text)}>
                         <span aria-hidden="true">{item.icon}</span>
                         <strong>{item.title}</strong>
                         <small>
@@ -295,10 +348,10 @@ export default function App({ user, initial }: { user: User; initial: { settings
                         <div className="message-label">
                           {message.role === "user" ? "나" : "Local AI"}
                           {message.role === "assistant" && (
-                            <span>데모 응답</span>
+                            <span>{message.model === 'demo' ? '데모 응답' : `${status?.models.find(m => m.id === message.model)?.label ?? message.model} · 실제 AI 응답`}</span>
                           )}
                         </div>
-                        <p>{message.text}</p>
+                        <p>{message.text || '응답 생성 중…'}</p>
                       </div>
                     </article>
                   ))}
@@ -322,6 +375,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
                   id="message"
                   placeholder="메시지를 입력하세요…"
                   value={draft}
+                  disabled={busy || loading}
                   maxLength={4000}
                   rows={2}
                   onChange={(event) => setDraft(event.target.value)}
@@ -339,7 +393,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
                 />
                 <div className="composer-footer">
                   <span>
-                    데모 대화{" "}
+                    {busy ? '응답 생성 중…' : demo ? '데모 대화' : '개인 AI 대화'}{" "}
                     <span className="composer-hint">
                       · Shift + Enter로 줄바꿈
                     </span>
@@ -347,15 +401,16 @@ export default function App({ user, initial }: { user: User; initial: { settings
                   <button
                     className="send"
                     aria-label="메시지 보내기"
-                    disabled={!draft.trim()}
+                    disabled={!draft.trim() || busy || loading || (!demo && !status?.configured)}
                     type="submit"
                   >
                     ↑
                   </button>
+                  {busy && <button type="button" onClick={() => void window.desktop.cancelChat()}>응답 중단</button>}
                 </div>
               </form>
               <p className="disclaimer">
-                Astra 데모 응답입니다. 실제 AI 호출은 없습니다. 제목만 서버에 저장하며 메시지는 로그아웃·종료 시 사라집니다.
+                {demo ? 'Astra 데모 응답입니다. 실제 AI 호출은 없습니다. 데모 메시지는 로그아웃·종료 시 사라집니다.' : status?.configured ? '완료된 대화는 내 계정에 저장됩니다. AI 답변에는 오류가 있을 수 있습니다.' : status?.message || '서버 AI 설정을 확인하고 있습니다.'}
               </p>
             </div>
           </section>
@@ -413,15 +468,15 @@ export default function App({ user, initial }: { user: User; initial: { settings
                   <span data-testid="app-version">
                     {version || "불러오는 중…"}
                   </span>{" "}
-                  · 2단계 계정 인증 / AI 데모
+                  · 3단계 개인 AI 채팅
                 </p>
               </div>
-              <span className="pill">로컬 데모</span>
+              <span className="pill">{demo ? '로컬 데모' : 'AI 채팅'}</span>
             </section>
             <p className="settings-footnote">
-              현재 제공 기능: 데모 채팅, 대화 목록, 테마 설정.
+              현재 제공 기능: 개인 AI 채팅, 대화 저장·복원, 테마 설정.
               <br />
-              계정 인증·개인 설정·대화 제목 저장을 제공합니다. 실제 AI 연결은 3단계에서 제공합니다.
+              AI 연결 설정은 서버 관리자가 관리합니다. 데모 메시지는 저장하거나 AI에 전송하지 않습니다.
             </p>
           </section>
         )}

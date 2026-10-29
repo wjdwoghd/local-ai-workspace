@@ -49,7 +49,7 @@ export default function Auth() {
       <label>비밀번호<input name="password" type="password" autoComplete="current-password" required maxLength={128} /></label>
       <button disabled={busy} type="submit">{busy ? "처리 중…" : "로그인"}</button>
       {error && <p role="alert" className="error">{error}</p>}
-      <p>Astra · 데모 응답만 제공하며 실제 AI API는 연결되지 않았습니다.</p>
+      <p>Astra · 로그인 후 서버의 AI 연결 상태를 확인할 수 있습니다.</p>
     </form>
   </main>;
 }

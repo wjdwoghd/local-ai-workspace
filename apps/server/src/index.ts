@@ -4,16 +4,20 @@ import { database, poolFor, rows } from "./database/oracle";
 import { service } from "./service";
 import { app } from "./app";
 import { audit } from "./security";
+import { chatStore } from './chat-store';
+import { chat } from './chat';
+import { openai } from './openai';
 
 async function main() {
   const settings = config();
   const pool = await poolFor(settings);
-  const server = app(service(database(pool), settings));
+  const auth = service(database(pool), settings);
+  const server = app(auth, chat(chatStore(auth), openai(settings)));
   server.addHook("onClose", async () => { await pool.close(10); });
   try {
     await database(pool).transaction(async c => {
       const [r] = await rows<{ VERSION: number }>(c, "SELECT version FROM s2_control WHERE id = 1");
-      if (r?.VERSION !== 1) throw new Error("Migration required");
+      if (r?.VERSION !== 2) throw new Error("Migration required");
     });
     await server.listen({ host: settings.host, port: settings.port });
     console.info(JSON.stringify({ event: "server_ready" }));

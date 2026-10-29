@@ -693,3 +693,11 @@ fieldset {
 .accounts { overflow-y: auto; width: 100%; max-width: 1000px; align-self: center; }
 .account-form { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
 .account-form button { margin-bottom: 16px; }
+.chat-heading { flex-wrap: wrap; gap: 12px; }
+.chat-heading > div { min-width: 0; flex: 1; }
+.chat-heading h1 { overflow-wrap: anywhere; }
+.model-picker { display: grid; gap: 4px; color: var(--muted); font-size: 11px; }
+.model-picker select { max-width: 190px; font: inherit; padding: 7px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--surface); }
+.chat-heading > button, .chat-loading button { padding: 7px 10px; border-radius: 8px; cursor: pointer; }
+.chat-loading { color: var(--muted); }
+.local-note p { overflow-wrap: anywhere; line-height: 1.6; }

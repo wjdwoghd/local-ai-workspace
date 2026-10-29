@@ -8,19 +8,21 @@ export async function migrate(pool: oracledb.Pool) {
     let version = 0;
     try { version = (await rows<{ VERSION: number }>(c, "SELECT version FROM s2_control WHERE id = 1"))[0]?.VERSION ?? 0; }
     catch (e) { if ((e as { errorNum?: number }).errorNum !== 942) throw e; }
-    if (version === 1) return;
-    if (version !== 0) throw new Error("Unsupported schema version");
-    const sql = await readFile(resolve("../../database/oracle/migrations/001_auth.sql"), "utf8");
-    for (const part of sql.replace(/^--.*$/gm, "").split(/^;\s*$/m)) {
-      const statement = part.trim();
-      if (!statement) continue;
-      try { await c.execute(statement); }
-      catch (e) {
-        const n = (e as { errorNum?: number }).errorNum;
-        // Oracle DDL commits independently. Resume an interrupted migration only in its reserved schema namespace.
-        if (!(n === 955 && /^CREATE (TABLE|INDEX) s2_/i.test(statement)) && !(n === 1 && /^INSERT INTO s2_control/i.test(statement))) throw e;
+    if (version === 2) return;
+    if (version !== 0 && version !== 1) throw new Error("Unsupported schema version");
+    for (const file of version === 0 ? ['001_auth.sql', '002_chat.sql'] : ['002_chat.sql']) {
+      const sql = await readFile(resolve("../../database/oracle/migrations", file), "utf8");
+      for (const part of sql.replace(/^--.*$/gm, "").split(/^;\s*$/m)) {
+        const statement = part.trim();
+        if (!statement) continue;
+        try { await c.execute(statement); }
+        catch (e) {
+          const n = (e as { errorNum?: number }).errorNum;
+          // Oracle DDL commits independently. Resume an interrupted migration only in its reserved schema namespace.
+          if (!(n === 955 && /^CREATE (TABLE|INDEX) s[23]_/i.test(statement)) && !(n === 1 && /^INSERT INTO s2_control/i.test(statement))) throw e;
+        }
       }
+      await c.commit();
     }
-    await c.commit();
   } finally { await c.close(); }
 }

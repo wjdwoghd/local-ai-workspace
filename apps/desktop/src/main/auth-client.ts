@@ -1,4 +1,6 @@
 import { parseOperation, type Operation, type Result } from "../../../../packages/shared-types/auth";
+import { parseChat, type ChatEvent } from '../../../../packages/shared-types/chat';
+import { sse } from '../../../../packages/shared-types/sse';
 
 export function serverURL(value: string | undefined, packaged: boolean) {
   const url = new URL(value || "http://127.0.0.1:3001");
@@ -11,15 +13,51 @@ export function serverURL(value: string | undefined, packaged: boolean) {
 export class AuthClient {
   private credential: string | undefined;
   private queue = Promise.resolve();
+  private streamController?: AbortController;
   constructor(private url: string, private transport: typeof fetch = fetch) {}
   execute(raw: unknown): Promise<Result> {
     let op: Operation;
     try { op = parseOperation(raw); }
     catch { return Promise.resolve({ ok: false, status: 400, message: "잘못된 요청입니다." }); }
+    if (op.action === 'login' || op.action === 'logout') this.cancelChat();
     let result!: Result;
     const task = this.queue.then(async () => { result = await this.perform(op); });
     this.queue = task.catch(() => {});
     return task.then(() => result);
+  }
+  cancelChat() { this.streamController?.abort(); }
+  async stream(raw: unknown, emit: (event: ChatEvent) => void): Promise<Result> {
+    let input;
+    try { input = parseChat(raw); } catch { return { ok: false, status: 400, message: '잘못된 채팅 요청입니다.' }; }
+    await this.queue;
+    if (!this.credential) return { ok: false, status: 401, message: '로그인이 필요합니다.' };
+    if (this.streamController) return { ok: false, status: 409, message: '응답 생성이 이미 진행 중입니다.' };
+    const credential = this.credential;
+    const controller = new AbortController(); this.streamController = controller;
+    const timeout = setTimeout(() => controller.abort(), 130_000);
+    try {
+      const response = await this.transport(new URL('/api/chat', this.url), { method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` },
+        body: JSON.stringify(input), signal: controller.signal, redirect: 'error', cache: 'no-store' });
+      if (!response.ok || !response.body) {
+        if (response.status === 401 && this.credential === credential) this.credential = undefined;
+        return { ok: false, status: response.status, message: response.status === 401 ? '세션이 만료되었습니다. 다시 로그인하세요.' : response.status === 400 ? '입력·모델 또는 대화 길이 한도를 확인하세요. 대화가 길다면 새 대화를 시작하세요.' : response.status === 409 ? '대화 응답 생성 중입니다. 잠시 후 다시 시도하세요.' : response.status === 429 ? 'AI 사용량 한도에 도달했습니다. 잠시 후 다시 시도하세요.' : 'AI 요청에 실패했습니다. 서버의 API 키·모델 권한·연결을 확인하세요.' };
+      }
+      for await (const rawEvent of sse(response.body)) {
+        controller.signal.throwIfAborted();
+        if (credential !== this.credential) throw new Error('Session changed');
+        const event = rawEvent as ChatEvent;
+        if (event.type === 'delta' && typeof event.text === 'string') emit(event);
+        else if (event.type === 'done') { emit(event); return { ok: true, data: null }; }
+        else if (event.type === 'error') {
+          if (event.status === 401) this.credential = undefined;
+          // Never forward arbitrary upstream error strings to renderer.
+          return { ok: false, status: event.status, message: event.status === 401 ? '세션이 만료되었습니다. 다시 로그인하세요.' : '응답이 중단되었거나 저장하지 못했습니다. 대화를 확인하고 다시 시도하세요.' };
+        } else throw new Error('Invalid stream');
+      }
+      throw new Error('Truncated stream');
+    } catch { return { ok: false, status: 503, message: '응답이 중단되었습니다. 대화를 다시 불러와 저장 여부를 확인하세요.' }; }
+    finally { clearTimeout(timeout); if (this.streamController === controller) this.streamController = undefined; }
   }
   private async request(op: Operation, credential = this.credential): Promise<Result> {
     try {
@@ -35,6 +73,7 @@ export class AuthClient {
   }
   private async perform(op: Operation): Promise<Result> {
     if (op.action === "login" || op.action === "logout") {
+      this.cancelChat();
       const previous = this.credential;
       this.credential = undefined;
       if (previous) {
@@ -44,7 +83,7 @@ export class AuthClient {
       if (op.action === "logout") return { ok: true, data: null };
     } else if (!this.credential) return { ok: false, status: 401, message: "로그인이 필요합니다." };
     const result = await this.request(op);
-    if (!result.ok && result.status === 401) this.credential = undefined;
+    if (!result.ok && result.status === 401) { this.credential = undefined; this.cancelChat(); }
     if (op.action === "login" && result.ok) {
       const data = result.data as { credential: string; user: unknown };
       if (typeof data.credential !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(data.credential)) return { ok: false, status: 503, message: "잘못된 인증 서버 응답입니다." };

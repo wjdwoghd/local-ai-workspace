@@ -5,14 +5,14 @@ export interface ConversationMeta { id: string; title: string }
 export interface Settings { theme: Theme }
 export type Operation =
   | { action: "login"; username: string; password: string }
-  | { action: "logout" | "me" | "users" | "conversations" | "settings" }
+  | { action: "logout" | "me" | "users" | "conversations" | "settings" | "chatStatus" }
   | { action: "createUser"; username: string; password: string; role: Role }
   | { action: "disableUser"; id: string }
   | { action: "resetPassword"; id: string; password: string }
   | { action: "saveSettings"; theme: Theme }
   | { action: "resetSettings" }
   | { action: "createConversation"; title: string }
-  | { action: "getConversation" | "deleteConversation"; id: string }
+  | { action: "getConversation" | "deleteConversation" | "messages"; id: string }
   | { action: "updateConversation"; id: string; title: string };
 export type Result<T = unknown> = { ok: true; data: T } | { ok: false; status: number; message: string };
 export class InputError extends Error {}
@@ -28,7 +28,7 @@ export function parseOperation(raw: unknown): Operation {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new InputError("잘못된 요청입니다.");
   const o = raw as Record<string, unknown>;
   const shape: Record<string, string[]> = {
-    login: ["username", "password"], logout: [], me: [], users: [], conversations: [], settings: [],
+    login: ["username", "password"], logout: [], me: [], users: [], conversations: [], settings: [], chatStatus: [], messages: ["id"],
     createUser: ["username", "password", "role"], disableUser: ["id"], resetPassword: ["id", "password"],
     saveSettings: ["theme"], resetSettings: [], createConversation: ["title"], getConversation: ["id"],
     deleteConversation: ["id"], updateConversation: ["id", "title"],
