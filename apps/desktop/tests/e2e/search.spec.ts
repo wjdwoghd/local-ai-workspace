@@ -21,6 +21,12 @@ test('imports a selected local document, searches, cites, restores and isolates 
     await page.getByRole('button', { name: '웹·파일 검색', exact: true }).click();
     await page.getByRole('button', { name: '로컬 파일 선택·등록' }).click();
     await expect(page.getByRole('status')).toContainText('문서를 등록했습니다');
+    await page.getByRole('button', { name: '공유 범위 변경' }).click();
+    const sharing = page.getByRole('dialog', { name: '자료 공유 권한 변경' });
+    await expect(sharing).toContainText('소유자만 공유를 변경');
+    await sharing.getByLabel('대상 범위').selectOption('');
+    await sharing.getByRole('button', { name: '대상 확인 · 변경' }).click();
+    await expect(page.getByRole('status')).toContainText('공유 범위를 변경했습니다');
     await page.getByLabel('검색어', { exact: true }).fill('휴가');
     await page.getByRole('button', { name: '검색', exact: true }).click();
     await expect(page.locator('.search-hit')).toContainText('20일');

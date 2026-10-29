@@ -12,6 +12,8 @@ import { chatStore } from '../../src/chat-store';
 import type { ChatMessage } from '../../../../packages/shared-types/chat';
 import { documents } from '../../src/documents';
 import type { DocumentMeta, SearchHit, Team } from '../../../../packages/shared-types/search';
+import { collaboration } from '../../src/collaboration';
+import type { Activity, UsageSummary } from '../../../../packages/shared-types/collaboration';
 
 const enabled = ["TEST_ORACLE_USER", "TEST_ORACLE_PASSWORD", "TEST_ORACLE_CONNECT_STRING", "TEST_ORACLE_CONFIRM_SCHEMA"].some(key => Boolean(process.env[key]));
 it.skipIf(!enabled)("real Oracle: ten users, ownership CRUD, RBAC, session revocation, expiry, throttling, transactions", async () => {
@@ -27,7 +29,8 @@ it.skipIf(!enabled)("real Oracle: ten users, ownership CRUD, RBAC, session revoc
   const auth = service(db, c);
   const store = chatStore(auth);
   const docs = documents(auth);
-  const server = app(auth, undefined, docs);
+  const collaborationService = collaboration(auth);
+  const server = app(auth, undefined, docs, collaborationService);
   const run = randomUUID().slice(0, 8);
   const adminName = `admin.${run}`;
   const password = token();
@@ -88,6 +91,27 @@ it.skipIf(!enabled)("real Oracle: ten users, ownership CRUD, RBAC, session revoc
     const team = await call<Team>({ action: 'createTeam', name: `test-${run}` }, admin.credential); createdTeams.push(team.id);
     await call({ action: 'createTeam', name: 'forged' }, accounts[0].credential, 403);
     for (const account of accounts.slice(0, 2)) await call({ action: 'addTeamMember', id: team.id, userId: account.user.id }, admin.credential);
+    for (let i = 0; i < 10; i++) {
+      const actor = accounts[i];
+      await call({ action: 'recordGit', operation: 'commit', outcome: 'succeeded' }, actor.credential);
+      expect((await call<Activity[]>({ action: 'activity' }, actor.credential)).filter(a => a.action === 'git.commit')).toHaveLength(1);
+      expect(await call<UsageSummary>({ action: 'myUsage' }, actor.credential)).toMatchObject({ records: 0, total: null, cost: null });
+      await collaborationService.recordUsage(actor.meta.id, actor.meta.id, 'fixture-model', { input: i + 1, output: 1, total: i + 2 }, actor.credential);
+      await collaborationService.recordUsage(actor.meta.id, actor.meta.id, 'fixture-model', { input: i + 1, output: 1, total: i + 2 }, actor.credential);
+      expect(await call<UsageSummary>({ action: 'myUsage' }, actor.credential)).toMatchObject({ records: 1, total: i + 2 });
+      await expect(collaborationService.recordUsage(accounts[(i + 1) % 10].meta.id, randomUUID(), 'fixture', { input: 1, output: 1, total: 2 }, actor.credential)).rejects.toMatchObject({ status: 404 });
+      await call({ action: 'teamUsage', id: team.id }, actor.credential, 403);
+      await call({ action: 'shareDocument', id: personalDocs[(i + 1) % 10].id, teamId: team.id }, actor.credential, 404);
+    }
+    expect(await call<UsageSummary>({ action: 'teamUsage', id: team.id }, admin.credential)).toMatchObject({ records: 2, total: 5 });
+    await call({ action: 'shareDocument', id: personalDocs[0].id, teamId: team.id }, admin.credential, 404);
+    await call({ action: 'shareDocument', id: personalDocs[2].id, teamId: team.id }, accounts[2].credential, 403);
+    await call({ action: 'shareDocument', id: personalDocs[0].id, teamId: team.id }, accounts[0].credential);
+    await call({ action: 'readDocument', id: personalDocs[0].id }, accounts[1].credential);
+    await call({ action: 'readDocument', id: personalDocs[0].id }, accounts[2].credential, 404);
+    await call({ action: 'shareDocument', id: personalDocs[0].id, teamId: null }, accounts[1].credential, 404);
+    await call({ action: 'shareDocument', id: personalDocs[0].id, teamId: null }, accounts[0].credential);
+    await call({ action: 'readDocument', id: personalDocs[0].id }, accounts[1].credential, 404);
     const shared = await docs.upload({ name: '팀정책.txt', base64: Buffer.from('팀검색 휴가 20일').toString('base64'), teamId: team.id }, accounts[0].credential);
     expect(await call<SearchHit[]>({ action: 'searchDocuments', query: '팀검색' }, accounts[1].credential)).toHaveLength(1);
     expect(await call<SearchHit[]>({ action: 'searchDocuments', query: '팀검색' }, accounts[2].credential)).toEqual([]);
@@ -95,6 +119,7 @@ it.skipIf(!enabled)("real Oracle: ten users, ownership CRUD, RBAC, session revoc
     await call({ action: 'removeTeamMember', id: team.id, userId: accounts[0].user.id }, accounts[1].credential, 403);
     await call({ action: 'removeTeamMember', id: team.id, userId: accounts[0].user.id }, admin.credential);
     await call({ action: 'readDocument', id: shared.id }, accounts[0].credential, 404);
+    await call({ action: 'shareDocument', id: shared.id, teamId: null }, accounts[0].credential, 404);
     await call({ action: 'deleteDocument', id: shared.id }, accounts[0].credential, 404);
     expect(await docs.search('팀검색', accounts[0].credential)).toEqual([]);
     await expect(docs.verify([shared.id], accounts[0].credential)).rejects.toMatchObject({ status: 403 });

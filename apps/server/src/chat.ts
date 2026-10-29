@@ -4,7 +4,8 @@ import type { chatStore } from './chat-store';
 import type { openai } from './openai';
 import type { documents } from './documents';
 import type { Citation } from '../../../packages/shared-types/search';
-export function chat(store: ReturnType<typeof chatStore>, provider: ReturnType<typeof openai>, docs?: Pick<ReturnType<typeof documents>, 'search' | 'verify'>) {
+import type { collaboration } from './collaboration';
+export function chat(store: ReturnType<typeof chatStore>, provider: ReturnType<typeof openai>, docs?: Pick<ReturnType<typeof documents>, 'search' | 'verify'>, team?: Pick<ReturnType<typeof collaboration>, 'recordUsage'>) {
   return {
     async start(input: ChatInput, credential?: string) {
       // Ownership always precedes configuration/provider checks.
@@ -26,6 +27,7 @@ export function chat(store: ReturnType<typeof chatStore>, provider: ReturnType<t
               await store.check(input.id, credential);
               await verify();
               if (typeof delta !== 'string') {
+                if ('usage' in delta) { if (team) await team.recordUsage(input.id, prepared.run, input.model, delta.usage, credential); continue; }
                 citations.push(...delta.citations);
                 yield { type: 'sources', citations: [...citations] };
                 continue;

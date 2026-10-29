@@ -4,6 +4,7 @@ export interface DesktopInfo {
   theme: ThemePreference;
 }
 export interface DesktopAPI {
+  git(request: import('../git').GitRequest): Promise<import('../git').GitResult>;
   agent: import('../agent').AgentAPI;
   workspace: import('../workspace').WorkspaceAPI;
   getInfo(): Promise<DesktopInfo>;

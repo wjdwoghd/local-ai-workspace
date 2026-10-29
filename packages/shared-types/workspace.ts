@@ -32,11 +32,11 @@ export interface WorkspaceAPI {
   onEvent(callback: (event: WorkspaceEvent) => void): () => void;
 }
 
-export function relativeWorkspacePath(value: unknown, allowRoot = false): asserts value is string {
+export function relativeWorkspacePath(value: unknown, allowRoot = false, allowHidden = false): asserts value is string {
   if (typeof value !== 'string' || value.length > 1024 || (!value && !allowRoot) ||
     (value !== '' && value.split('/').some(part => !part || part === '.' || part === '..' ||
       /[\\:<>"|?*\x00-\x1f]/.test(part) || /[. ]$/.test(part) ||
-      /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(part) || WORKSPACE_HIDDEN.includes(part.toLowerCase())))) {
+      /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(part) || (!allowHidden && WORKSPACE_HIDDEN.includes(part.toLowerCase()))))) {
     throw new Error('허용되지 않은 상대 경로입니다.');
   }
 }

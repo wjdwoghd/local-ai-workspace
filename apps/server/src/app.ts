@@ -7,7 +7,9 @@ import type { chat } from './chat';
 import { Readable } from 'node:stream';
 import { parseSearchOperation, parseUpload, MAX_FILE_BYTES } from '../../../packages/shared-types/search';
 import type { documents } from './documents';
-export function app(auth: Pick<ReturnType<typeof service>, "execute">, ai?: ReturnType<typeof chat>, docs?: ReturnType<typeof documents>) {
+import { parseCollaboration } from '../../../packages/shared-types/collaboration';
+import type { collaboration } from './collaboration';
+export function app(auth: Pick<ReturnType<typeof service>, "execute">, ai?: ReturnType<typeof chat>, docs?: ReturnType<typeof documents>, team?: ReturnType<typeof collaboration>) {
   // Never enable request logging: credentials are in the authorization header / login body.
   // No trustProxy: X-Forwarded-* supplied by clients must not bypass limits.
   const server = Fastify({ logger: false, bodyLimit: 32768, requestTimeout: 20000, connectionTimeout: 20000 });
@@ -28,6 +30,11 @@ export function app(auth: Pick<ReturnType<typeof service>, "execute">, ai?: Retu
     const header = request.headers.authorization;
     const credential = header?.startsWith("Bearer ") ? header.slice(7) : undefined;
     const search = parseSearchOperation(op as unknown as Record<string, unknown>);
+    const collab = parseCollaboration(op as unknown as Record<string, unknown>);
+    if (collab) {
+      if (!team) throw new ApiError(503, '팀 협업 설정이 필요합니다.');
+      return { ok: true, data: await team.execute(collab, credential) };
+    }
     if (search && !docs) throw new ApiError(503, '문서 검색 설정이 필요합니다.');
     try { return { ok: true, data: search ? await docs!.execute(search, credential) : await auth.execute(op, credential, request.ip) }; }
     catch (error) { if (error instanceof ApiError && error.status === 429) reply.header("Retry-After", "900"); throw error; }

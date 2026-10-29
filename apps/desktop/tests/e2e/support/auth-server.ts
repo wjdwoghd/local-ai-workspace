@@ -67,6 +67,14 @@ export async function authFixture(ai = false, tls?: { cert: string; key: string 
       const u = sessions.get(credential);
       if (!u) return send(401);
       switch (op.action) {
+        case 'activity': return send(200, []);
+        case 'myUsage': return send(200, { records: 0, input: null, output: null, total: null, cost: null, scope: '테스트 fixture · 수집 없음' });
+        case 'recordGit': return send(200, null);
+        case 'shareDocument': {
+          const doc = documents.get(op.id); if (doc?.owner !== u.id) return send(404);
+          if (op.teamId) return send(403);
+          return send(200, null);
+        }
         case 'teams': return send(200, []);
         case 'documents': return send(200, [...documents.values()].filter(d => d.owner === u.id));
         case 'searchDocuments': return send(200, [...documents.values()].filter(d => d.owner === u.id && d.text.includes(op.query)).map(d => ({ documentId: d.id, name: d.name, chunk: 1, location: '줄 1', text: d.text })));

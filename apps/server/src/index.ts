@@ -8,18 +8,20 @@ import { chatStore } from './chat-store';
 import { chat } from './chat';
 import { openai } from './openai';
 import { documents } from './documents';
+import { collaboration } from './collaboration';
 
 async function main() {
   const settings = config();
   const pool = await poolFor(settings);
   const auth = service(database(pool), settings);
   const docs = documents(auth);
-  const server = app(auth, chat(chatStore(auth), openai(settings), docs), docs);
+  const team = collaboration(auth);
+  const server = app(auth, chat(chatStore(auth), openai(settings), docs, team), docs, team);
   server.addHook("onClose", async () => { await pool.close(10); });
   try {
     await database(pool).transaction(async c => {
       const [r] = await rows<{ VERSION: number }>(c, "SELECT version FROM s2_control WHERE id = 1");
-      if (r?.VERSION !== 3) throw new Error("Migration required");
+      if (r?.VERSION !== 4) throw new Error("Migration required");
     });
     await server.listen({ host: settings.host, port: settings.port });
     console.info(JSON.stringify({ event: "server_ready" }));

@@ -4,6 +4,7 @@ import type { service } from './service';
 import { rows } from './database/oracle';
 import { ApiError } from './security';
 import { extractDocument } from './document-parser';
+import { activity } from './activity';
 import { MAX_FILE_BYTES, type DocumentMeta, type SearchHit, type SearchOperation, type Team, type UploadInput } from '../../../packages/shared-types/search';
 
 // Private documents belong only to their owner. Team documents require current membership, even for their uploader/admin.
@@ -29,6 +30,7 @@ export function documents(auth: Pick<ReturnType<typeof service>, 'withUser'>, ex
         const id = randomUUID();
         await c.execute('INSERT INTO s4_documents (id, owner_id, team_id, name, chunk_count) VALUES (:id, :owner, :team, :name, :chunks)', { id, owner: user.id, team: input.teamId, name: input.name, chunks: parts.length });
         await c.executeMany('INSERT INTO s4_chunks (document_id, ordinal, location, content) VALUES (:id, :ordinal, :location, :content)', parts.map((part, i) => ({ id, ordinal: i + 1, location: part.location.slice(0, 200), content: part.text })));
+        await activity(c, user.id, input.teamId ? 'document.shared-upload' : 'document.private-upload');
         return { id, owner: user.id, teamId: input.teamId, name: input.name, chunks: parts.length } satisfies DocumentMeta;
       });
     },
@@ -65,6 +67,7 @@ export function documents(auth: Pick<ReturnType<typeof service>, 'withUser'>, ex
           case 'deleteDocument': {
             const result = await c.execute(`DELETE FROM s4_documents d WHERE d.id = :id AND d.owner_id = :owner AND ${documentAccess}`, { ...owner, id: op.id });
             if (!result.rowsAffected) throw new ApiError(404, '문서를 찾을 수 없거나 삭제 권한이 없습니다.');
+            await activity(c, user.id, 'document.deleted');
             return null;
           }
           case 'createTeam': {

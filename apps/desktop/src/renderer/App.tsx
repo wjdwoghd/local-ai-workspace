@@ -6,6 +6,7 @@ import type { User, Settings, ConversationMeta } from "../../../../packages/shar
 import { request } from "./api";
 import { Documents, Sources } from './Documents';
 import { Workspace } from './Workspace';
+import { Collaboration } from './Collaboration';
 
 const themes: {
   value: ThemePreference;
@@ -43,7 +44,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
   const sending = useRef(false);
   const alive = useRef(true);
   const [activeId, setActiveId] = useState(conversations[0].id);
-  const [page, setPage] = useState<"chat" | "settings" | "documents" | "workspace">("chat");
+  const [page, setPage] = useState<"chat" | "settings" | "documents" | "workspace" | "collaboration">("chat");
   useEffect(() => { const show = () => setPage('workspace'); window.addEventListener('workspace-focus', show); return () => window.removeEventListener('workspace-focus', show); }, []);
   const [webSearch, setWebSearch] = useState(false);
   const [documentSearch, setDocumentSearch] = useState(false);
@@ -200,6 +201,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
           <span aria-hidden="true">＋</span> 새 대화 <kbd>↵</kbd>
         </button>
         <nav aria-label="주요 메뉴">
+          <button className={page === 'collaboration' ? 'nav-item selected' : 'nav-item'} aria-current={page === 'collaboration' ? 'page' : undefined} onClick={() => setPage('collaboration')}>팀 협업 · 사용량</button>
           <button
             className={page === "chat" ? "nav-item selected" : "nav-item"}
             aria-current={page === "chat" ? "page" : undefined}
@@ -259,7 +261,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
       <main id="main" tabIndex={-1}>
         <header className="topbar">
           <div>
-            {page === "chat" ? "워크스페이스 / 채팅" : page === 'workspace' ? '워크스페이스 / 로컬 개발 환경' : page === 'documents' ? '워크스페이스 / 웹·파일 검색' : "워크스페이스 / 설정"}
+            {page === "chat" ? "워크스페이스 / 채팅" : page === 'workspace' ? '워크스페이스 / 로컬 개발 환경' : page === 'documents' ? '워크스페이스 / 웹·파일 검색' : page === 'collaboration' ? '워크스페이스 / 팀 협업 · 사용량' : "워크스페이스 / 설정"}
           </div>
           <span className="demo-badge">
             <span className="status-dot" /> {demo ? 'DEMO' : 'AI'}
@@ -271,7 +273,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
           </div>
         )}
         <div className="workspace-container" hidden={page !== 'workspace'}><Workspace /></div>
-        {page === 'workspace' ? null : page === 'documents' ? <Documents user={user} /> : page === "chat" ? (
+        {page === 'workspace' ? null : page === 'collaboration' ? <Collaboration user={user} /> : page === 'documents' ? <Documents user={user} /> : page === "chat" ? (
           <section className="chat-page" aria-label="채팅 화면">
             <div className="chat-heading">
               <div>

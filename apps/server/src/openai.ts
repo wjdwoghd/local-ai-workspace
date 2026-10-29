@@ -3,6 +3,7 @@ import type { ChatInput, ChatMessage } from '../../../packages/shared-types/chat
 import { sse } from '../../../packages/shared-types/sse';
 import { ApiError } from './security';
 import { safeWebURL, type Citation, type SearchHit } from '../../../packages/shared-types/search';
+import { tokenUsage, type TokenUsage } from '../../../packages/shared-types/collaboration';
 
 export function openai(config: Pick<Config, 'openaiKey' | 'models'>, transport: typeof fetch = fetch) {
   return {
@@ -10,7 +11,7 @@ export function openai(config: Pick<Config, 'openaiKey' | 'models'>, transport: 
       if (!config.models.some(m => m.id === model)) throw new ApiError(400, '서버에서 허용한 모델을 선택하세요.');
       if (!config.openaiKey) throw new ApiError(503, '서버 API 키 설정이 필요합니다. 관리자에게 문의하세요.');
     },
-    async *stream(input: ChatInput, messages: ChatMessage[], signal: AbortSignal, hits: SearchHit[] = []): AsyncGenerator<string | { citations: Citation[] }> {
+    async *stream(input: ChatInput, messages: ChatMessage[], signal: AbortSignal, hits: SearchHit[] = []): AsyncGenerator<string | { citations: Citation[] } | { usage: TokenUsage }> {
       this.validate(input.model);
       const headers = { Authorization: `Bearer ${config.openaiKey}`, 'Content-Type': 'application/json' };
       // Check account visibility before sending conversation content; never substitute another ID.
@@ -35,6 +36,8 @@ export function openai(config: Pick<Config, 'openaiKey' | 'models'>, transport: 
         if (['error', 'response.failed', 'response.incomplete'].includes(event.type ?? '')) throw new ApiError(503, 'AI 응답이 완료되지 않았습니다. 다시 시도하세요.');
         if (event.type === 'response.completed') {
           if (event.response?.status !== 'completed') throw new ApiError(503, 'AI 응답이 완료되지 않았습니다.');
+          const usage = tokenUsage((event.response as { usage?: unknown }).usage);
+          if (usage) yield { usage };
           const citations: Citation[] = [];
           for (const item of event.response.output ?? []) for (const content of item.content ?? []) for (const a of content.annotations ?? []) {
             if (input.webSearch && a.type === 'url_citation' && safeWebURL(a.url) && citations.length < 100) citations.push({ kind: 'web', title: String(a.title || a.url).slice(0, 300), url: a.url,

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopAPI } from "../../../../packages/shared-types/ipc/desktop";
 
 const api: DesktopAPI = {
+  git: request => ipcRenderer.invoke('desktop:git', request),
   agent: { execute: request => ipcRenderer.invoke('desktop:agent', request) },
   workspace: {
     pick: () => ipcRenderer.invoke('desktop:workspace', { action: 'pick' }),

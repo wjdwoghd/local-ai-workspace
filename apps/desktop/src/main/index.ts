@@ -9,6 +9,8 @@ import { isTheme, isTrustedURL } from "./security/policy";
 import { AuthClient, serverURL } from "./auth-client";
 import { LocalWorkspace } from './workspace';
 import { AgentSession } from './agent';
+import { GitSession } from './git';
+import { parseGitRequest } from '../../../../packages/shared-types/git';
 import { parseAgentRequest } from '../../../../packages/shared-types/agent';
 import { parseWorkspaceRequest } from '../../../../packages/shared-types/workspace';
 import type { ThemePreference } from "../../../../packages/shared-types/ipc/desktop";
@@ -18,10 +20,11 @@ let mainWindow: BrowserWindow | null = null;
 let rendererURL = "";
 let auth: AuthClient;
 const workspace = new LocalWorkspace(event => {
-  if (event.type === 'reset' || event.type === 'lost') agent.dispose();
+  if (event.type === 'reset' || event.type === 'lost') { agent.dispose(); git.dispose(); }
   if (mainWindow && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send('desktop:workspace-event', event);
 });
 const agent = new AgentSession(workspace, () => auth?.sessionGeneration ?? -1);
+const git = new GitSession(workspace, () => auth?.sessionGeneration ?? -1);
 let authMonitor: ReturnType<typeof setInterval> | undefined;
 let monitoringAuth = false;
 
@@ -98,6 +101,23 @@ app
       return { version: app.getVersion(), theme };
     });
     let workspaceQueue: Promise<unknown> = Promise.resolve();
+    ipcMain.handle('desktop:git', async (event, ...args: unknown[]) => {
+      validate(event, args, 1);
+      const request = parseGitRequest(args[0]);
+      if (!auth.hasSession) throw new Error('로그인이 필요합니다.');
+      const generation = auth.sessionGeneration;
+      const guard = async () => {
+        if (!auth.hasSession || generation !== auth.sessionGeneration) throw new Error('인증 상태가 변경되었습니다.');
+        const result = await auth.execute({ action: 'me' });
+        if (!result.ok || generation !== auth.sessionGeneration) { git.dispose(); throw new Error('인증 상태를 확인하세요.'); }
+        workspace.assertCurrent(request.id);
+      };
+      return git.execute(request, guard, async (operation, outcome) => {
+        await guard();
+        const result = await auth.execute({ action: 'recordGit', operation, outcome });
+        if (!result.ok) throw new Error('서버 작업 기록을 저장할 수 없습니다.');
+      });
+    });
     ipcMain.handle('desktop:agent', async (event, ...args: unknown[]) => {
       validate(event, args, 1);
       const request = parseAgentRequest(args[0]);

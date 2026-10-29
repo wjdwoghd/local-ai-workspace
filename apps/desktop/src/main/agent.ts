@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { AGENT_LIMITS, agentPath, type AgentApproval, type AgentChange, type AgentMode, type AgentScope, type AgentView } from '../../../../packages/shared-types/agent';
 import type { LocalWorkspace } from './workspace';
+import { assertApproval } from '../../../../packages/security/approvals';
 
 const setup = '설정 필요: 서버 전용 인증 중계·허용 코딩 모델·도구 격리가 검증되지 않았습니다. 실제 Codex 연결과 AI 명령 실행은 비활성화되어 있습니다.';
 const digest = (scope: AgentScope, changes: AgentChange[]) => createHash('sha256').update(JSON.stringify({ scope, changes })).digest('hex');
@@ -74,7 +75,7 @@ export class AgentSession {
   }
   async decide(id: string, mode: AgentMode, approval: string, contentDigest: string, accept: boolean) {
     this.status(id, mode); const p = this.approval;
-    if (!p || p.id !== approval || p.digest !== contentDigest || p.expires <= Date.now()) throw new Error('만료·중복·변경된 승인');
+    assertApproval(p, approval, contentDigest);
     this.assertScope(p.scope); this.approval = undefined; this.view.approval = undefined;
     if (!accept) { this.view = { ...this.view, state: 'completed', message: '거절했습니다. 파일 변경 없음.' }; this.record('declined'); return structuredClone(this.view); }
     const epoch = this.epoch; this.view = { ...this.view, state: 'running', applied: [], unapplied: p.changes.map(c => c.path) };
