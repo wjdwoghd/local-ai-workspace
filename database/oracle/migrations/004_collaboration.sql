@@ -14,8 +14,9 @@ CREATE TABLE s7_usage (
   model VARCHAR2(100) NOT NULL,
   input_tokens NUMBER NOT NULL CHECK (input_tokens >= 0),
   output_tokens NUMBER NOT NULL CHECK (output_tokens >= 0),
-  total_tokens NUMBER NOT NULL CHECK (total_tokens = input_tokens + output_tokens),
-  created_at TIMESTAMP DEFAULT SYS_EXTRACT_UTC(SYSTIMESTAMP) NOT NULL
+  total_tokens NUMBER NOT NULL,
+  created_at TIMESTAMP DEFAULT SYS_EXTRACT_UTC(SYSTIMESTAMP) NOT NULL,
+  CONSTRAINT s7_usage_total CHECK (total_tokens = input_tokens + output_tokens)
 )
 ;
 CREATE INDEX s7_usage_owner ON s7_usage(user_id, created_at)

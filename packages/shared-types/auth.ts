@@ -21,8 +21,10 @@ export type Operation =
 export type Result<T = unknown> = { ok: true; data: T } | { ok: false; status: number; message: string };
 export class InputError extends Error {}
 export function username(value: unknown): string {
-  if (typeof value !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{2,63}$/.test(value)) throw new InputError("계정 이름은 영문·숫자·._- 3~64자입니다.");
-  return value.toLowerCase();
+  if (typeof value !== "string") throw new InputError("계정 이름을 확인하세요.");
+  const normalized = value.normalize('NFC').toLowerCase();
+  if (!/^[가-힣a-z0-9][가-힣a-z0-9._-]{1,63}$/.test(normalized) || new TextEncoder().encode(normalized).length > 64) throw new InputError("계정 이름은 한글·영문·숫자·._- 2~64자, UTF-8 최대 64바이트입니다.");
+  return normalized;
 }
 export function password(value: unknown, creating = true): string {
   if (typeof value !== "string" || value.length < (creating ? 12 : 1) || value.length > 128) throw new InputError("비밀번호 길이를 확인하세요(신규 12~128자).");

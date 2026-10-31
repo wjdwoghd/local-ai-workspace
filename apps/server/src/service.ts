@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type oracledb from "oracledb";
-import type { Operation, User, ConversationMeta, Settings } from "../../../packages/shared-types/auth";
+import { username, type Operation, type User, type ConversationMeta, type Settings } from "../../../packages/shared-types/auth";
 import type { Config } from "./config";
 import { type DB, rows } from "./database/oracle";
 import { ApiError, audit, digest, hashPassword, token, verifyPassword } from "./security";
@@ -42,6 +42,24 @@ export function service(db: DB, config: Config) {
     return publicUser(u);
   }
   return {
+    // Operator-only CLI provisioning, never exposed through HTTP/renderer operations.
+    // An explicitly supplied initial password does not weaken normal account/reset policy.
+    async provisionUsers(names: string[], initialPassword: string) {
+      if (!Array.isArray(names) || !names.length || names.length > 10 || typeof initialPassword !== 'string' || initialPassword.length < 4 || initialPassword.length > 128) throw new ApiError(400, '명단(최대 10명)과 초기 비밀번호(4~128자)를 확인하세요.');
+      const normalized = names.map(username);
+      if (new Set(normalized).size !== normalized.length) throw new ApiError(400, '명단에 중복 계정이 있습니다.');
+      const users: { id: string; username: string; hash: string }[] = [];
+      for (const name of normalized) users.push({ id: randomUUID(), username: name, hash: await hashPassword(initialPassword) });
+      return db.transaction(async c => {
+        const [control] = await rows<{ VERSION: number }>(c, 'SELECT version FROM s2_control WHERE id = 1 FOR UPDATE');
+        if (control?.VERSION !== 4) throw new ApiError(409, '최신 마이그레이션을 먼저 적용하세요.');
+        for (const user of users) {
+          if ((await rows(c, 'SELECT id FROM s2_users WHERE username = :name', { name: user.username })).length) throw new ApiError(409, '이미 있는 계정이 포함되어 있습니다. 기존 계정은 변경하지 않았습니다.');
+        }
+        for (const user of users) await c.execute("INSERT INTO s2_users (id, username, password_hash, role, active) VALUES (:id, :name, :hash, 'user', 1)", { id: user.id, name: user.username, hash: user.hash });
+        return users.map(u => ({ id: u.id, username: u.username, role: 'user', active: true } satisfies User));
+      });
+    },
     withUser<T>(credential: string | undefined, work: (c: oracledb.Connection, user: User) => Promise<T>): Promise<T> {
       return db.transaction(async c => work(c, await authenticate(c, credential)));
     },
