@@ -49,6 +49,11 @@ test("단일 포터블 EXE 실행", async () => {
       .toBe(true);
     const context = browser!.contexts()[0];
     const page = context.pages()[0] || (await context.waitForEvent("page"));
+    if (process.env.LOCAL_WORKSPACE_MODE === '1' || !process.env.AUTH_SERVER_URL) {
+      await expect(page.getByRole('heading', { name: '팀원 작업 공간 선택' })).toBeVisible();
+      await expect(page.locator('input[type=password]')).toHaveCount(0);
+      return;
+    }
     await expect(
       page.getByRole("heading", { name: "로그인", exact: true }),
     ).toBeVisible();

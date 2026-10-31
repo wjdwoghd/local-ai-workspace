@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { User } from '../../../../packages/shared-types/auth';
 import { safeWebURL, type Citation, type DocumentMeta, type SearchHit, type Team } from '../../../../packages/shared-types/search';
 import { request } from './api';
+import { Markdown } from './Markdown';
 
 export function Sources({ text, citations = [] }: { text: string; citations?: Citation[] }) {
   const [preview, setPreview] = useState<{ name: string; parts: { chunk: number; location: string; text: string }[] }>();
@@ -17,23 +18,8 @@ export function Sources({ text, citations = [] }: { text: string; citations?: Ci
       }
     } catch (e) { setError((e as Error).message); }
   }
-  const ranges = citations.filter(c => c.kind === 'web' && safeWebURL(c.url) && Number.isInteger(c.start) && Number.isInteger(c.end) && c.start! >= 0 && c.end! > c.start! && c.end! <= text.length).map(c => ({ start: c.start!, end: c.end!, citation: c }));
-  for (const match of text.matchAll(/\[D\d+\]/g)) {
-    const c = citations.find(c => c.kind === 'document' && c.title.startsWith(match[0] + ' '));
-    if (c) ranges.push({ start: match.index!, end: match.index! + match[0].length, citation: c });
-  }
-  ranges.sort((a, b) => a.start - b.start);
-  const nodes: React.ReactNode[] = [];
-  let offset = 0;
-  for (const range of ranges) {
-    if (range.start < offset) continue;
-    nodes.push(text.slice(offset, range.start));
-    nodes.push(<button className="inline-citation" key={`${range.start}-${range.end}`} title={range.citation.title} onClick={() => void open(range.citation)}>{text.slice(range.start, range.end)}</button>);
-    offset = range.end;
-  }
-  nodes.push(text.slice(offset));
   return <>
-    <p>{nodes}</p>
+    <Markdown text={text} citations={citations} onCitation={c=>void open(c)} />
     {!!citations.length && <div className="sources" aria-label="검색 출처"><strong>검색 출처</strong>{citations.map((c, i) => <button key={i} onClick={() => void open(c)}>{c.title}{c.location ? ` · ${c.location}` : ' ↗'}</button>)}</div>}
     {error && <p role="alert">{error}</p>}
     {preview && <div className="document-preview" role="dialog" aria-modal="false" aria-label="문서 출처"><button autoFocus onClick={() => setPreview(undefined)}>출처 닫기</button><h2>{preview.name}</h2>{preview.parts.filter(p => selected === undefined || p.chunk === selected).map(p => <section key={p.chunk}><strong>{p.location}</strong><p>{p.text}</p></section>)}<button onClick={() => setSelected(undefined)}>전체 추출문 보기</button></div>}

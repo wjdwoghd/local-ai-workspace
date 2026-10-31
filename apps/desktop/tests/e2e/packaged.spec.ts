@@ -20,6 +20,11 @@ test("패키징된 Windows 실행 파일", async () => {
   try {
     expect(await app.evaluate(({ app }) => app.isPackaged)).toBe(true);
     const page = await app.firstWindow();
+    if (process.env.LOCAL_WORKSPACE_MODE === '1' || !process.env.AUTH_SERVER_URL) {
+      await expect(page.getByRole('heading', { name: '팀원 작업 공간 선택' })).toBeVisible();
+      await expect(page.locator('input[type=password]')).toHaveCount(0);
+      return;
+    }
     await expect(
       page.getByRole("heading", { name: "로그인", exact: true }),
     ).toBeVisible();

@@ -1,3 +1,4 @@
+import { showMode, openAppTool, closeAppTool } from './support/mode-ui';
 import { test, expect, _electron as electron } from '@playwright/test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -18,7 +19,7 @@ test('imports a selected local document, searches, cites, restores and isolates 
     }, file);
     const page = await app.firstWindow();
     await login(page, 'alice', fixture.password, false);
-    await page.getByRole('button', { name: '웹·파일 검색', exact: true }).click();
+    await openAppTool(page,'문서 관리');
     await page.getByRole('button', { name: '로컬 파일 선택·등록' }).click();
     await expect(page.getByRole('status')).toContainText('문서를 등록했습니다');
     await page.getByRole('button', { name: '공유 범위 변경' }).click();
@@ -33,7 +34,7 @@ test('imports a selected local document, searches, cites, restores and isolates 
     await page.locator('.search-hit').getByRole('button', { name: '휴가정책.txt · 줄 1' }).click();
     await expect(page.getByRole('dialog', { name: '문서 출처' })).toContainText('20일');
     await page.getByRole('button', { name: '출처 닫기' }).click();
-    await page.getByRole('button', { name: '채팅', exact: true }).click();
+    await showMode(page,'Chat');
     await page.getByLabel('웹 검색', { exact: true }).check();
     await page.getByLabel('개인·팀 문서 검색', { exact: true }).check();
     await page.getByLabel('메시지 입력').fill('휴가 규정');
@@ -43,17 +44,17 @@ test('imports a selected local document, searches, cites, restores and isolates 
     await page.getByRole('button', { name: '공식 출처 ↗', exact: true }).click();
     expect(await app.evaluate(() => (globalThis as unknown as { sourceURL: string }).sourceURL)).toBe('https://example.com/policy');
     await expect(page.locator('.inline-citation')).toHaveCount(2);
-    await page.getByRole('button', { name: '로그아웃', exact: true }).click();
+    await closeAppTool(page);await page.getByRole('button', { name: '로그아웃', exact: true }).click();
     await login(page, 'bob', fixture.password, false);
-    await page.getByRole('button', { name: '웹·파일 검색', exact: true }).click();
+    await openAppTool(page,'문서 관리');
     await expect(page.getByRole('heading', { name: '등록 문서 0개' })).toBeVisible();
-    await page.getByRole('button', { name: '로그아웃', exact: true }).click();
+    await closeAppTool(page);await page.getByRole('button', { name: '로그아웃', exact: true }).click();
     await login(page, 'alice', fixture.password, false);
     await page.getByRole('navigation', { name: '대화 목록' }).getByRole('button', { name: '휴가 규정' }).click();
     await expect(page.getByRole('log')).toContainText('[D1] 휴가정책.txt');
     await expect(page.locator('.inline-citation')).toHaveCount(2);
     await page.screenshot({ path: 'test-results/search-stage-4.png' });
-    await page.getByRole('button', { name: '웹·파일 검색', exact: true }).click();
+    await openAppTool(page,'문서 관리');
     await page.getByRole('button', { name: '삭제', exact: true }).click();
     await expect(page.getByRole('heading', { name: '등록 문서 0개' })).toBeVisible();
   } finally { await app.close(); await fixture.close(); await rm(profile, { recursive: true, force: true }); }

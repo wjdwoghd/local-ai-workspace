@@ -59,7 +59,7 @@ export class AuthClient {
     if (this.streamController) return { ok: false, status: 409, message: '응답 생성이 이미 진행 중입니다.' };
     const credential = this.credential;
     const controller = new AbortController(); this.streamController = controller;
-    const timeout = setTimeout(() => controller.abort(), 130_000);
+    const timeout = setTimeout(() => controller.abort(), reasoningTimeout(input.reasoningEffort)+10000);
     try {
       const response = await this.transport(new URL('/api/chat', this.url), { method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` },
@@ -119,3 +119,4 @@ export class AuthClient {
     return result;
   }
 }
+import { reasoningTimeout } from '../../../../packages/shared-types/reasoning';

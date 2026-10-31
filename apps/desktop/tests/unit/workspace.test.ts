@@ -15,6 +15,28 @@ beforeEach(async () => {
 afterEach(async () => { workspace.dispose(); await rm(root, { recursive: true, force: true }); await rm(outside, { recursive: true, force: true }); });
 
 describe('workspace boundaries and lifecycle', () => {
+  it('searches real project text and names while excluding secrets, binary, hard links and junctions', async () => {
+    await mkdir(join(root, 'src')); await writeFile(join(root, 'src', '한국어.ts'), 'first\nneedle 한글\n');
+    await writeFile(join(root, '.env'), 'needle'); await writeFile(join(root, 'password.txt'), 'needle');
+    await mkdir(join(root, 'dist')); await writeFile(join(root, 'dist', 'output.txt'), 'needle');
+    await writeFile(join(root, 'binary.bin'), Buffer.from([0,110,101,101,100,108,101]));
+    await writeFile(join(outside, 'outside.txt'), 'needle'); await link(join(outside, 'outside.txt'), join(root, 'hard.txt'));
+    await symlink(outside, join(root, 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
+    const found = await workspace.search(id, 'NEEDLE');
+    expect(found.hits).toEqual([{ path: 'src/한국어.ts', line: 2, text: 'needle 한글' }]);
+    expect(found.limited).toBe(false);
+    expect((await workspace.search(id, '한국어')).hits[0].path).toBe('src/한국어.ts');
+    expect(() => parseWorkspaceRequest({ action: 'search', id, query: '' })).toThrow();
+    expect(() => parseWorkspaceRequest({ action: 'search', id, query: 'x', root: outside })).toThrow();
+    workspace.dispose(); await expect(workspace.search(id, 'needle')).rejects.toThrow();
+  });
+  it('caps search results and rejects arbitrary shell executables and arguments', async () => {
+    await writeFile(join(root, 'many.txt'), 'match\n'.repeat(200));
+    const result = await workspace.search(id, 'match'); expect(result.hits).toHaveLength(100);
+    for (const request of [{action:'terminal-start',id,shell:'cmd'}, {action:'terminal-start',id,shell:'C:/malware.exe'}, {action:'terminal-start',id,shell:'git-bash',args:['-c','echo secret']}]) expect(()=>parseWorkspaceRequest(request)).toThrow();
+    expect(parseWorkspaceRequest({action:'terminal-start',id,shell:'git-bash'})).toMatchObject({shell:'git-bash'});
+    await expect(workspace.terminalStart(id, 'invalid' as never)).rejects.toThrow();
+  });
   it('rejects path injection, alternate streams, reserved names and invalid IPC shapes', () => {
     for (const path of ['../x', '/x', 'a/../x', 'a\\x', 'C:/x', '//host/x', '\\\\?\\C:\\x', 'a:b', 'a//b', 'CON.txt', 'a.', 'x\0', '.git/config', 'node_modules/x']) expect(() => relativeWorkspacePath(path)).toThrow();
     expect(() => relativeWorkspacePath('src/한글 file.ts')).not.toThrow();
@@ -86,7 +108,63 @@ describe('text reads and replacement saves', () => {
     finally { await chmod(path, 0o666); }
   });
 });
+describe('Explorer file operations',()=>{
+  it('creates folders and empty Unicode files exclusively without replacing existing data',async()=>{
+    await workspace.create(id,'새 폴더',true);await workspace.create(id,'새 폴더/hello.py',false);
+    expect(await readFile(join(root,'새 폴더','hello.py'),'utf8')).toBe('');
+    await writeFile(join(root,'새 폴더','hello.py'),'original');
+    await expect(workspace.create(id,'새 폴더/hello.py',false)).rejects.toThrow('이미');
+    await expect(workspace.create(id,'새 폴더',true)).rejects.toThrow('이미');
+    expect(await readFile(join(root,'새 폴더','hello.py'),'utf8')).toBe('original');
+    expect(events.some(e=>e.type==='change'&&e.directory==='새 폴더')).toBe(true);
+  });
+  it('renames files and folders, rejects collisions and dirty state, and retains content',async()=>{
+    await workspace.create(id,'src',true);await writeFile(join(root,'src','a.py'),'keep');await writeFile(join(root,'src','b.py'),'other');
+    await expect(workspace.renameEntry(id,'src/a.py','src/b.py')).rejects.toThrow('이미');
+    workspace.dirty=true;await expect(workspace.renameEntry(id,'src/a.py','src/c.py')).rejects.toThrow('저장');workspace.dirty=false;
+    await expect(workspace.renameEntry(id,'src','src/child')).rejects.toThrow('하위');
+    await workspace.renameEntry(id,'src/a.py','src/c.py');await workspace.renameEntry(id,'src','source');
+    expect(await readFile(join(root,'source','c.py'),'utf8')).toBe('keep');expect(await readFile(join(root,'source','b.py'),'utf8')).toBe('other');
+  });
+  it('validates new destinations, stale handles and session changes before any mutation',async()=>{
+    for(const request of [{action:'create',id,path:'../escape',directory:false},{action:'create',id,path:'x',directory:'yes'},{action:'rename',id,path:'x',target:'C:/escape'},{action:'trash',id,path:''},{action:'trash',id,path:'.git'},{action:'find-paths',id,query:''}])expect(()=>parseWorkspaceRequest(request)).toThrow();
+    await expect(workspace.create(id,'x',false,()=>{throw new Error('expired');})).rejects.toThrow('expired');
+    expect((await workspace.list(id,'')).map(e=>e.name)).not.toContain('x');
+    const old=id;id=(await workspace.select(outside)).id;await expect(workspace.create(old,'x',false)).rejects.toThrow();
+  });
+  it('rejects junction destinations and hard links for rename and trash',async()=>{
+    await symlink(outside,join(root,'escape'),process.platform==='win32'?'junction':'dir');
+    await writeFile(join(root,'a.py'),'safe');await expect(workspace.create(id,'escape/new.py',false)).rejects.toThrow();
+    await expect(workspace.renameEntry(id,'a.py','escape/new.py')).rejects.toThrow();
+    await writeFile(join(outside,'target.py'),'outside');await link(join(outside,'target.py'),join(root,'hard.py'));
+    await expect(workspace.renameEntry(id,'hard.py','new.py')).rejects.toThrow('하드 링크');
+    let called=false;await expect(workspace.trash(id,'hard.py',async()=>{called=true;})).rejects.toThrow('하드 링크');expect(called).toBe(false);
+    expect(await readFile(join(outside,'target.py'),'utf8')).toBe('outside');
+  });
+  it('sends only the verified project path to the recycle callback and never deletes on refusal',async()=>{
+    await writeFile(join(root,'a.txt'),'safe');let called='';
+    workspace.dirty=true;await expect(workspace.trash(id,'a.txt',async()=>{called='unexpected';})).rejects.toThrow('저장');workspace.dirty=false;
+    await expect(workspace.trash(id,'a.txt',async()=>{throw new Error('trash unavailable');})).rejects.toThrow('trash unavailable');
+    expect(await readFile(join(root,'a.txt'),'utf8')).toBe('safe');
+    await workspace.trash(id,'a.txt',async absolute=>{called=absolute;await rename(absolute,join(root,'recycled.txt'));});
+    expect(called).toBe(join(root,'a.txt'));expect(await readFile(join(root,'recycled.txt'),'utf8')).toBe('safe');
+  });
+  it('finds filenames without reading binary contents and bounds results',async()=>{
+    await mkdir(join(root,'nested'));await writeFile(join(root,'nested','image-match.bin'),Buffer.from([0,1]));await mkdir(join(root,'node_modules'));await writeFile(join(root,'node_modules','hidden-match.txt'),'hidden');
+    expect((await workspace.findPaths(id,'MATCH')).matches.map(e=>e.path)).toEqual(['nested/image-match.bin']);
+    for(let i=0;i<205;i++)await writeFile(join(root,`match-${i}.txt`),'');
+    const found=await workspace.findPaths(id,'match');expect(found.matches).toHaveLength(200);expect(found.limited).toBe(true);
+  });
+});
+
 describe('watchers and terminal environment', () => {
+  it('Windows recursive root watch notices changes inside unopened nested folders and ignores Git internals',async()=>{
+    if(process.platform!=='win32')return;
+    await mkdir(join(root,'src','nested'),{recursive:true});await mkdir(join(root,'.git'));await new Promise(r=>setTimeout(r,200));events.length=0;
+    await writeFile(join(root,'src','nested','created.py'),'first');
+    await expect.poll(()=>events.some(e=>e.type==='change'&&e.directory==='src/nested')).toBe(true);
+    await new Promise(r=>setTimeout(r,250));events.length=0;await writeFile(join(root,'.git','index'),'ignored');await new Promise(r=>setTimeout(r,350));expect(events).toEqual([]);
+  });
   it('reports root deletion and stops resources while retaining the handle for explicit close', async () => {
     await rm(root, { recursive: true, force: true });
     await expect.poll(() => events.some(e => e.type === 'lost'), { timeout: 5000 }).toBe(true);

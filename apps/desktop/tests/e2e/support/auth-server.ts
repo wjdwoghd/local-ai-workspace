@@ -49,7 +49,7 @@ export async function authFixture(ai = false, tls?: { cert: string; key: string 
         const doc = [...documents.values()].find(d => d.owner === user.id);
         if (input.documentSearch && doc) citations.push({ kind: 'document', title: `[D1] ${doc.name}`, documentId: doc.id, chunk: 1, location: '줄 1' });
         const answer = citations.length ? '테스트 스트리밍 응답 [D1] 공식' : '테스트 스트리밍 응답';
-        if (input.webSearch) citations.push({ kind: 'web', title: '공식 출처', url: 'https://example.com/policy', start: answer.length - 2, end: answer.length });
+        if (input.webSearch || input.autoTools) citations.push({ kind: 'web', title: '공식 출처', url: 'https://example.com/policy', start: answer.length - 2, end: answer.length });
         emit({ type: 'delta', text: answer.slice(4) });
         if (citations.length) emit({ type: 'sources', citations });
         messages.set(input.id, [...history, { id: randomUUID(), role: 'user', text: input.text, model: input.model }, { id: randomUUID(), role: 'assistant', text: answer, model: input.model, ...(citations.length ? { citations } : {}) }]);

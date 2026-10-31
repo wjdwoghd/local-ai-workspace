@@ -1,3 +1,4 @@
+import { showMode, openAppTool, closeAppTool } from './support/mode-ui';
 import { test, expect, _electron as electron } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,10 +25,10 @@ test("login failure, account switching, private cache removal, admin UI, expiry,
     await page.getByLabel("메시지 입력").fill("Alice private conversation");
     await page.getByLabel("메시지 입력").press("Enter");
     await expect(page.getByRole("log")).toContainText("Alice private conversation");
-    await page.getByRole("button", { name: "설정", exact: true }).click();
+    await openAppTool(page,'설정');
     await page.getByRole("radio", { name: /다크/ }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-    await page.getByRole("button", { name: "로그아웃", exact: true }).click();
+    await closeAppTool(page);await page.getByRole("button", { name: "로그아웃", exact: true }).click();
     await expect(page.getByRole("heading", { name: "로그인", exact: true })).toBeVisible();
     await expect(page.getByText("Alice private conversation", { exact: true })).toHaveCount(0);
     await login(page, "bob", fixture.password);
@@ -35,9 +36,9 @@ test("login failure, account switching, private cache removal, admin UI, expiry,
     await expect(page.getByLabel("메시지 입력")).toHaveValue("");
     await expect(page.getByRole("navigation", { name: "대화 목록" })).not.toContainText("Alice private");
     expect(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length }))).toEqual({ local: 0, session: 0 });
-    await page.getByRole("button", { name: "설정", exact: true }).click();
+    await openAppTool(page,'설정');
     await expect(page.getByRole("radio", { name: /시스템/ })).toBeChecked();
-    await page.getByRole("button", { name: "로그아웃", exact: true }).click();
+    await closeAppTool(page);await page.getByRole("button", { name: "로그아웃", exact: true }).click();
     await login(page, "admin", fixture.password);
     await page.getByRole("button", { name: "계정 관리", exact: true }).click();
     await expect(page.getByRole("heading", { name: "팀원 계정 관리" })).toBeVisible();
@@ -45,7 +46,7 @@ test("login failure, account switching, private cache removal, admin UI, expiry,
     await login(page, "alice", fixture.password);
     await expect(page.getByRole("log")).toHaveCount(0);
     await expect(page.getByRole("navigation", { name: "대화 목록" })).toContainText("Alice private");
-    await page.getByRole("button", { name: "설정", exact: true }).click();
+    await openAppTool(page,'설정');
     await expect(page.getByRole("radio", { name: /다크/ })).toBeChecked();
     fixture.expire();
     await page.getByRole("radio", { name: /라이트/ }).click();

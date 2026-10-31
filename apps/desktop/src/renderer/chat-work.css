@@ -1,0 +1,80 @@
+/* The app has two modes. Work owns the entire workbench width. */
+.mode-shell { display:grid; grid-template-rows:40px minmax(0,1fr); grid-template-columns:196px minmax(0,1fr); min-height:0; overflow:hidden; }
+.mode-shell.work-mode,.mode-shell.history-collapsed { grid-template-columns:minmax(0,1fr); }
+.mode-shell>[hidden] { display:none !important; }
+.mode-shell>.mode-bar { grid-row:1; grid-column:1/-1; margin:0; min-height:40px; padding:4px 12px; gap:12px; flex-wrap:nowrap; border-bottom:1px solid var(--line); background:var(--sidebar); font-size:12px; }
+.mode-bar .compact-brand { font-size:13px; white-space:nowrap; }
+.mode-bar nav { display:flex; gap:3px; align-items:center; }
+.mode-bar button,.mode-tools summary,.mode-bar select { border:1px solid transparent; border-radius:6px; background:transparent; padding:5px 10px; color:inherit; font-size:12px; cursor:pointer; }
+.mode-bar nav button[aria-current=page] { background:var(--surface); border-color:var(--line); box-shadow:0 1px 2px #0001; }
+.mode-bar button:hover,.mode-tools summary:hover { background:#8882; }
+.mode-bar .mode-bar-spacer { flex:1; }
+.mode-bar .mode-user { margin:0; font-size:11px; max-width:90px; text-overflow:ellipsis; white-space:nowrap; overflow:hidden; }
+.mode-tools { position:relative; }
+.mode-tools summary { list-style:none; }
+.mode-tools>div { position:absolute; z-index:30; right:0; top:30px; min-width:155px; border:1px solid var(--line); border-radius:8px; padding:5px; background:var(--surface); box-shadow:0 8px 25px #0002; }
+.mode-tools button { width:100%; text-align:left; display:block; }
+.mode-shell>.sidebar { grid-row:2; grid-column:1; width:196px; padding:12px 10px; min-height:0; }
+.mode-shell .sidebar .new-chat { padding:8px 11px; min-height:36px; margin:0 0 6px; font-size:12px; box-shadow:none; }
+.mode-shell .history-label { padding:14px 8px 8px; font-size:10px; }
+.mode-shell .history-item { padding:8px; font-size:12px; gap:7px; }
+.mode-shell .sidebar-bottom { padding-top:9px; }
+.mode-shell .local-note { font-size:10px; padding:5px 8px; }
+.mode-shell .local-note p { line-height:1.5; margin:4px 0; max-height:44px; overflow:auto; font-size:10px; }
+.mode-shell .profile { padding:10px 8px 0; margin-top:8px; gap:8px; font-size:11px; }
+.mode-shell .avatar { height:26px; width:26px; font-size:11px; }
+.mode-shell .profile small { font-size:10px; }
+.mode-shell>main { grid-row:2; grid-column:2; min-height:0; min-width:0; overflow:hidden; }
+.mode-shell.work-mode>main,.mode-shell.history-collapsed>main { grid-column:1; }
+.mode-shell .chat-heading { padding:18px 24px 8px; }
+.mode-shell .chat-heading p { display:none; }
+.mode-shell .chat-heading h1 { font-size:15px; }
+.mode-shell .chat-heading button { padding:5px 8px; font-size:11px; }
+.mode-shell .message-scroll { padding:18px clamp(24px,6%,160px); }
+.mode-shell .messages { width:100%; max-width:none; }
+.mode-shell .composer-wrap { width:100%; max-width:none; padding:10px clamp(24px,6%,160px) 12px; }
+.mode-shell .welcome { max-width:820px; padding:20px; }
+.mode-shell .welcome h2 { font-size:28px; }
+.mode-shell .welcome .eyebrow,.mode-shell .welcome-icon { display:none; }
+.mode-shell .welcome>p { font-size:12px; line-height:1.8; }
+.mode-shell .suggestions { margin-top:22px; }
+.mode-shell .search-options { font-size:11px; padding:5px 0 8px; }
+.mode-shell .search-options button { font-size:11px; padding:3px 7px; background:transparent; border:1px solid var(--line); border-radius:5px; }
+.mode-shell .model-picker { font-size:10px; }
+.mode-shell .model-picker select { padding:4px; }
+.mode-shell .disclaimer { font-size:10px; margin-bottom:0; }
+.chat-connection-notice { display:flex; align-items:center; gap:12px; padding:10px 12px; margin-bottom:10px; border:1px solid var(--line); border-radius:8px; background:var(--soft); font-size:12px; overflow-wrap:anywhere; }
+.chat-connection-notice>div { flex:1; min-width:0; }
+.chat-connection-notice strong { font-size:12px; }
+.chat-connection-notice p { margin:4px 0 0; line-height:1.5; color:var(--muted); }
+.chat-connection-notice button { flex-shrink:0; border:1px solid var(--line); border-radius:5px; padding:6px 8px; background:var(--surface); color:inherit; font-size:11px; }
+.workbench-chat>.chat-connection-notice { margin:8px 10px 0; flex-shrink:0; flex-wrap:wrap; }
+.app-dialog { width:min(900px,calc(100vw - 48px)); max-height:calc(100vh - 64px); padding:0; border:1px solid var(--line); border-radius:12px; background:var(--bg); color:var(--text); box-shadow:0 16px 70px #0004; }
+.app-dialog::backdrop { background:#0005; }
+.app-dialog .settings-page { padding:28px; max-width:none; width:100%; overflow:visible; }
+.app-dialog-close { position:sticky; z-index:2; float:right; top:8px; margin:8px 10px -36px 0; border:0; border-radius:5px; background:var(--surface); color:inherit; width:28px; height:28px; cursor:pointer; font-size:20px; }
+.app-dialog .settings-card { margin-top:16px; }
+@media(max-width:800px) { .mode-shell { grid-template-columns:166px minmax(0,1fr); }.mode-shell>.sidebar { width:166px; }.mode-shell>.mode-bar { gap:6px; padding:4px 8px; }.mode-bar .compact-brand { display:none; }.mode-shell .chat-heading { padding:12px; }.mode-shell .message-scroll { padding:12px; }.mode-shell .composer-wrap { padding:8px 12px; }.mode-shell .welcome { padding:10px; }.mode-shell .welcome h2 { font-size:24px; } }
+.connection-feedback { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; flex-shrink:0; margin:6px 24px; padding:9px 12px; border:1px solid var(--line); border-radius:6px; background:var(--soft); font-size:12px; overflow-wrap:anywhere; }
+.connection-feedback strong { white-space:nowrap; }
+.connection-feedback small { margin-left:auto; color:var(--muted); white-space:nowrap; }
+.connection-feedback[data-state=success] { border-color:#438b6866; }
+.connection-feedback[data-state=success] strong { color:#35845b; }
+.connection-feedback[data-state=failure] { border-color:#b7505066; }
+.connection-feedback[data-state=failure] strong { color:#c65d5d; }
+.workbench-chat>.connection-feedback { margin:5px 8px; font-size:11px; }
+:root[data-theme=dark] .connection-feedback[data-state=success] strong { color:#80cfa0; }
+:root[data-theme=dark] .connection-feedback[data-state=failure] strong { color:#ef9393; }
+.chat-attachments { display:flex; gap:8px; flex-wrap:wrap; margin:6px 0; max-height:180px; overflow:auto; }
+.chat-attachment { display:flex; align-items:center; gap:8px; border:1px solid var(--line,#8885); border-radius:9px; padding:6px; max-width:250px; background:var(--surface,#8881); min-width:0; }
+.chat-attachment>img { width:62px; height:62px; object-fit:cover; border-radius:5px; }
+.chat-attachment>div { min-width:0; }.chat-attachment strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; max-width:155px; }
+.chat-attachment small { display:block; color:var(--muted,#999); font-size:10px; }
+.chat-attachment button { border:0; background:transparent; color:inherit; padding:4px; }
+.attachment-file-icon { font-size:30px; padding:6px; color:var(--muted,#999); }
+.attachment-picker { flex-shrink:0; margin-bottom:5px; }.attachment-picker>small { font-size:10px; color:var(--muted,#999); margin-left:7px; }
+.attach-button,.vscode-workbench .attach-button { background:transparent; color:inherit; border:1px solid var(--line,#8885); border-radius:5px; padding:5px 8px; font-size:11px; }
+.workbench-composer>.attachment-picker { display:block; margin-top:0; }
+.chat-attachment .attachment-thumbnail { padding:0; border:0; background:transparent; flex-shrink:0; }
+.attachment-thumbnail img { display:block; width:62px; height:62px; object-fit:cover; border-radius:5px; }
+.attachment-preview { display:block; max-width:100%; max-height:75vh; object-fit:contain; margin:auto; padding:20px; }

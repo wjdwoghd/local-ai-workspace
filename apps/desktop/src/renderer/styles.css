@@ -756,3 +756,6 @@ fieldset {
 .git-panel input:not([type="checkbox"]), .git-panel textarea { display: block; width: min(600px, 100%); }
 .git-diff { max-height: 280px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; font-size: 12px; }
 .git-panel summary { cursor: pointer; font-weight: 600; }
+.local-mode .workspace-container { min-height: 0; flex: 1; }
+.local-records { padding: 8px 20px; max-height: 180px; overflow: auto; }
+.local-mode .session-bar { gap: 16px; flex-wrap: wrap; }

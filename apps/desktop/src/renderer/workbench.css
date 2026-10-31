@@ -1,0 +1,119 @@
+.vscode-workbench { --wb-bg:#ffffff; --wb-pane:#f3f3f3; --wb-tabs:#ececec; --wb-text:#333; --wb-muted:#6b6b6b; --wb-border:#d4d4d4; --wb-accent:#0078d4; background:var(--wb-bg); color:var(--wb-text); padding:0; gap:0; font-size:13px; }
+.local-mode { --sidebar:#f3f3f3; --line:#d4d4d4; --text:#333; color:var(--text); background:#f3f3f3; }
+:root[data-theme=dark] .local-mode { --sidebar:#181818; --line:#2b2b2b; --text:#ccc; background:#181818; }
+.vscode-workbench .codicon-files::before { content:'\eaf0'; }
+.vscode-workbench .codicon-search::before { content:'\ea6d'; }
+.vscode-workbench .codicon-source-control::before { content:'\ea68'; }
+.vscode-workbench .codicon-terminal::before { content:'\ea85'; }
+.vscode-workbench .codicon-comment-discussion::before { content:'\eac7'; }
+.vscode-workbench .codicon-settings-gear::before { content:'\eb51'; }
+.vscode-workbench .codicon-code::before { content:'\eac4'; }
+.vscode-workbench .codicon-remote::before { content:'\eb3a'; }
+:root[data-theme=dark] .vscode-workbench { --wb-bg:#1f1f1f; --wb-pane:#181818; --wb-tabs:#181818; --wb-text:#cccccc; --wb-muted:#969696; --wb-border:#2b2b2b; --wb-accent:#0078d4; }
+.vscode-workbench [hidden] { display:none !important; }
+.vscode-workbench button { border-radius:0; background:transparent; border:1px solid transparent; font-size:12px; padding:4px 7px; }
+.vscode-workbench button:hover { background:#8882; }
+.vscode-workbench input,.vscode-workbench textarea,.vscode-workbench select { color:var(--wb-text); background:var(--wb-bg); border:1px solid var(--wb-border); border-radius:3px; font:inherit; padding:5px; max-width:100%; }
+.vscode-workbench .workspace-toolbar { min-height:36px; flex-shrink:0; gap:6px; padding:3px 10px; border-bottom:1px solid var(--wb-border); background:var(--wb-pane); }
+.vscode-workbench .workspace-toolbar small { color:var(--wb-muted); font-size:11px; }
+.workbench-layout { display:flex; flex:1; min-height:0; min-width:0; overflow:hidden; }
+.activity-bar { width:48px; flex-shrink:0; display:flex; flex-direction:column; background:var(--wb-pane); border-right:1px solid var(--wb-border); padding-top:3px; }
+.vscode-workbench .activity-bar button { height:48px; width:48px; flex-shrink:0; color:var(--wb-muted); border-left:2px solid transparent; padding:0; }
+.activity-bar button .codicon { font-size:24px; }
+.vscode-workbench .activity-bar button[aria-pressed=true] { color:var(--wb-text); border-left-color:var(--wb-accent); }
+.activity-bar .activity-settings { margin-top:auto; }
+.workbench-sidebar { flex-shrink:0; min-width:0; display:flex; flex-direction:column; background:var(--wb-pane); overflow:hidden; }
+.pane-heading { height:35px; padding:0 14px; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-shrink:0; font-size:11px; letter-spacing:.6px; }
+.pane-heading strong { font-weight:500; }
+.pane-heading span { color:var(--wb-muted); }
+.vscode-workbench .file-tree { width:100%; min-width:0; flex:1; border:0; font-size:13px; }
+.file-tree p,.workbench-settings,.source-pane>p { padding:10px 14px; line-height:1.7; }
+.vscode-workbench .file-tree ul { margin:0; padding-left:15px; }
+.vscode-workbench .file-tree>ul { padding-left:12px; }
+.vscode-workbench .file-tree { --tree-guide:#b8c5d6; --tree-guide-active:#3976ba; }
+:root[data-theme=dark] .vscode-workbench .file-tree { --tree-guide:#4c5c74; --tree-guide-active:#93c5fd; }
+.vscode-workbench .file-tree li>ul { margin-left:11px; padding-left:9px; border-left:1px solid var(--tree-guide); }
+.vscode-workbench .file-tree li:has(button[aria-current=true])>ul { border-left-color:var(--tree-guide-active); }
+.vscode-workbench .file-tree li>ul:hover { border-left-color:var(--tree-guide-active); }
+.vscode-workbench .file-tree button { display:flex; align-items:center; gap:6px; min-height:24px; padding:2px 6px; }
+.tree-project { font-size:11px; font-weight:600; padding:7px 12px; background:#8881; }
+.tree-chevron { width:10px; color:var(--wb-muted); }
+.material-file-icon { width:16px; height:16px; flex-shrink:0; object-fit:contain; vertical-align:middle; }
+.source-pane { min-height:0; overflow:auto; }
+.vscode-workbench .git-panel { margin:0; padding:10px; border-radius:0; max-height:none; background:transparent; font-size:12px; }
+.git-panel p { overflow-wrap:anywhere; }
+.vscode-workbench .workspace-content { gap:0; overflow:hidden; }
+.editor-group { flex:1; min-height:100px; display:flex; flex-direction:column; overflow:hidden; }
+.vscode-workbench .file-tabs { min-height:35px; background:var(--wb-tabs); }
+.vscode-workbench .file-tabs>div { border-right:1px solid var(--wb-border); }
+.vscode-workbench .file-tabs button { display:flex; align-items:center; gap:7px; }
+.vscode-workbench .file-tabs button[aria-selected=true] { border-top:1px solid var(--wb-accent); background:var(--wb-bg); color:var(--wb-text); }
+.vscode-workbench .file-actions { padding:3px 8px; color:var(--wb-muted); gap:4px; border-bottom:1px solid var(--wb-border); flex-shrink:0; }
+.vscode-workbench .workspace-editor { min-height:60px; }
+.vscode-workbench .editor-empty { display:flex; flex-direction:column; justify-content:center; gap:12px; min-height:60px; text-align:center; padding:16px; color:var(--wb-muted); opacity:1; }
+.editor-empty .codicon { font-size:64px; opacity:.35; }
+.editor-empty p { margin:0; }
+.editor-empty small { font-size:11px; }
+.terminal-panel { flex-shrink:0; display:flex; flex-direction:column; min-height:200px; overflow:hidden; border-top:1px solid var(--wb-border); background:#1e1e1e; color:#ccc; }
+.vscode-workbench .terminal-toolbar { padding:4px 10px; gap:6px; flex-shrink:0; }
+.terminal-toolbar strong { font-size:11px; font-weight:500; margin-right:6px; border-bottom:1px solid #0078d4; padding-bottom:3px; }
+.terminal-toolbar span { font-size:11px; }
+.terminal-toolbar select { background:#252526; color:#ccc; }
+.vscode-workbench .terminal-warning { font-size:10px; padding:0 10px 3px; color:#bba36a; }
+.vscode-workbench .workspace-terminal { flex:1; height:auto; min-height:0; resize:none; background:#1e1e1e; padding:4px 10px; }
+.resize-handle { position:relative; z-index:3; flex-shrink:0; touch-action:none; user-select:none; background:var(--wb-border); }
+.resize-x { width:4px; cursor:col-resize; }
+.resize-y { height:4px; cursor:row-resize; }
+.resize-handle:hover,.resize-handle:focus-visible,.resize-handle:active { background:var(--wb-accent); outline:0; }
+.chat-pane { flex-shrink:0; min-width:0; height:100%; background:var(--wb-pane); overflow:hidden; }
+.workbench-chat { height:100%; display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+.chat-tools { display:flex; flex-wrap:wrap; padding:4px 8px 8px; gap:3px; border-bottom:1px solid var(--wb-border); }
+.vscode-workbench .chat-tools button { border-radius:4px; font-size:11px; }
+.vscode-workbench .chat-tools button[aria-pressed=true] { background:#0078d422; color:var(--wb-text); border-color:#0078d477; }
+.workbench-chat-scroll { flex:1; min-height:0; overflow:auto; padding:12px; }
+.work-project-context { flex-shrink:0; padding:6px 12px; border-bottom:1px solid var(--border); font-size:12px; }
+.work-project-context strong,.work-project-context small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.work-project-context small { margin-top:2px; color:var(--muted); }
+.chat-intro { margin:28px 0; text-align:center; color:var(--wb-muted); }
+.chat-intro>.codicon { font-size:30px; }
+.chat-intro h2 { font-size:16px; font-weight:500; color:var(--wb-text); }
+.chat-intro p,.chat-hint { font-size:12px; line-height:1.7; color:var(--wb-muted); }
+.vscode-workbench .workbench-search-hit { display:block; width:100%; text-align:left; margin:8px 0; padding:8px; background:#8881; }
+.workbench-search-hit strong,.workbench-search-hit span { display:block; white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; }
+.workbench-search-hit strong { margin-bottom:5px; color:#3794d0; }
+.workbench-composer { flex-shrink:0; border:1px solid var(--wb-border); border-radius:6px; background:var(--wb-bg); margin:10px; padding:8px; }
+.workbench-composer textarea { width:100%; resize:vertical; min-height:50px; max-height:180px; border:0; outline-offset:0; }
+.workbench-composer>div { display:flex; align-items:center; gap:6px; justify-content:space-between; margin-top:6px; }
+.workbench-composer small { color:var(--wb-muted); font-size:10px; }
+.workbench-composer>label,.chat-file-scope label { display:flex; flex-wrap:wrap; align-items:center; gap:5px; font-size:11px; margin-bottom:7px; }
+.icon-license { white-space:pre-wrap; overflow-wrap:anywhere; font-size:10px; line-height:1.6; }
+.vscode-workbench .workbench-composer button { background:var(--wb-accent); color:white; border-radius:4px; }
+.workbench-message { padding:8px; font-size:12px; }
+.workbench-message.user { border-radius:5px; background:#8881; }
+.workbench-message p { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.7; }
+.workbench-chat .agent-panel { padding:0; margin:0; border:0; max-height:none; border-radius:0; }
+.workbench-chat .agent-toolbar { flex-wrap:wrap; gap:6px; }
+.chat-error { color:#e87474; font-size:12px; overflow-wrap:anywhere; }
+.workbench-status { display:flex; gap:14px; align-items:center; height:23px; padding:0 10px; background:#0078d4; color:white; font-size:11px; flex-shrink:0; }
+.status-spacer { flex:1; }
+.local-mode .session-bar { min-height:34px; padding:3px 12px; gap:12px; font-size:12px; background:var(--sidebar); border-color:var(--line); }
+.local-mode .session-bar button,.local-mode .session-bar select { padding:3px 7px; border-radius:3px; font-size:12px; }
+.local-mode .local-records { padding:3px 15px; font-size:11px; }
+@media(max-width:850px) { .vscode-workbench .workspace-toolbar { gap:2px; }.vscode-workbench .workspace-toolbar small { flex-basis:100%; }.terminal-toolbar { max-height:95px; overflow:auto; }.workbench-status { gap:7px; }.workbench-status>span:nth-child(3) { display:none; } }
+/* Keep xterm's hidden input independent of application textarea styling. */
+.vscode-workbench .xterm .xterm-helper-textarea { min-height:0; max-height:none; padding:0; border:0; width:0; height:0; background:transparent; }
+.terminal-surface { position:relative; flex:1; min-height:104px; overflow:hidden; background:#10141c; }
+.vscode-workbench .terminal-surface .workspace-terminal { position:absolute; inset:0; height:100%; min-height:0; padding:4px 8px; }
+.terminal-empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; padding:8px; background:#181818; color:#ccc; font-size:12px; }
+.terminal-empty p { margin:0; }
+.vscode-workbench .terminal-empty button { border:1px solid #555; border-radius:4px; color:#ddd; }
+.workbench-chat>.pane-heading { padding:0 8px; gap:4px; }
+.workbench-chat>.pane-heading select { flex:1; min-width:80px; max-width:170px; font-size:11px; }
+.workbench-chat>.pane-heading button { font-size:10px; white-space:nowrap; }
+.workbench-composer>div small { flex:1; min-width:0; overflow-wrap:anywhere; }
+.workbench-composer>div button { flex-shrink:0; white-space:nowrap; }
+/* Leave usable terminal rows even after shrinking a narrow panel. */
+.vscode-workbench .terminal-toolbar { flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; min-height:34px; max-height:40px; }
+.terminal-toolbar>strong,.terminal-toolbar>label,.terminal-toolbar>button { flex-shrink:0; white-space:nowrap; }
+.terminal-toolbar>span { flex:1; min-width:55px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.vscode-workbench .terminal-warning { flex-shrink:0; max-height:30px; overflow:auto; }

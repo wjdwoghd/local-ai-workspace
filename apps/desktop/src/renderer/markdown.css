@@ -1,0 +1,21 @@
+﻿.markdown-body { min-width:0; font-size:14px; line-height:1.75; overflow-wrap:anywhere; }
+.message > div:last-child { flex:1; }
+.markdown-body>:first-child { margin-top:0; }.markdown-body>:last-child { margin-bottom:0; }
+.message .markdown-body p,.workbench-message .markdown-body p { white-space:normal; margin:.7em 0; line-height:1.75; }
+.markdown-body h1,.markdown-body h2,.markdown-body h3,.markdown-body h4 { line-height:1.4; margin:1.2em 0 .5em; font-weight:650; }
+.markdown-body h1 { font-size:1.6em; }.markdown-body h2 { font-size:1.35em; }.markdown-body h3 { font-size:1.15em; }
+.markdown-body ul,.markdown-body ol { margin:.7em 0; padding-left:1.6em; }.markdown-body li { padding-left:.2em; margin:.3em 0; }
+.markdown-body li>p { margin:.25em 0; }.markdown-body strong { font-weight:700; }
+.markdown-body blockquote { margin:1em 0; padding:.1em 1em; border-left:3px solid var(--line,#7775); color:var(--muted,#999); }
+.markdown-body hr { border:0; border-top:1px solid var(--line,#7775); margin:1.4em 0; }
+.markdown-body a { color:var(--accent,#329dd4); text-decoration:underline; text-underline-offset:3px; }
+.markdown-body :not(pre)>code { background:#8882; border-radius:4px; padding:2px 5px; font-size:.88em; font-family:var(--code-font); }
+.markdown-code { margin:1em 0; border:1px solid #7774; border-radius:10px; overflow:hidden; background:#10141a; color:#e4e9ee; }
+.markdown-code-toolbar { display:flex; align-items:center; justify-content:space-between; padding:6px 12px; background:#ffffff0c; font-size:11px; color:#bdc8d1; }
+.markdown-code-toolbar button,.vscode-workbench .markdown-code-toolbar button { color:#dce5eb; background:transparent; border:1px solid #ffffff20; border-radius:5px; padding:3px 8px; font-size:11px; }
+.markdown-code pre { margin:0; padding:14px; overflow-x:auto; white-space:pre; font-size:13px; line-height:1.65; font-family:var(--code-font); }
+.markdown-code pre code { background:none; padding:0; font:inherit; }
+.markdown-table { overflow-x:auto; margin:1em 0; }.markdown-table table { border-collapse:collapse; width:max-content; min-width:100%; font-size:.92em; }
+.markdown-table th,.markdown-table td { border:1px solid var(--line,#7775); padding:7px 12px; text-align:left; }.markdown-table th { background:#8881; font-weight:600; }
+.markdown-body input[type=checkbox] { pointer-events:none; margin-right:6px; }.markdown-body .katex-display { overflow-x:auto; overflow-y:hidden; padding:4px 0; }
+.hljs-keyword,.hljs-selector-tag,.hljs-literal { color:#d89cff; }.hljs-string,.hljs-regexp { color:#b9e58b; }.hljs-number,.hljs-symbol { color:#ffb072; }.hljs-comment,.hljs-quote { color:#8fab91; font-style:italic; }.hljs-title,.hljs-function,.hljs-built_in { color:#82c9ff; }.hljs-type,.hljs-params { color:#e8c86b; }.hljs-variable,.hljs-attr,.hljs-property { color:#65d8e8; }.hljs-tag,.hljs-name { color:#ff9090; }.hljs-meta { color:#c0a4ff; }.hljs-addition { color:#b9e58b; background:#28452d; }.hljs-deletion { color:#ff9090; background:#522a30; }

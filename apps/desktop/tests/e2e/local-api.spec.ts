@@ -1,0 +1,108 @@
+import { test, expect, _electron as electron } from '@playwright/test';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { localAPI } from '../../../server/src/local-api';
+import { chatModels } from '../../../server/src/models';
+import { showMode } from './support/mode-ui';
+
+test('DB-free API bridge: authenticated chat/web stream, coding diff approval, and profile isolation',async()=>{
+  test.setTimeout(90000);
+  const root=await mkdtemp(join(tmpdir(),'local-api-ui-')),profile=join(root,'profile'),project=join(root,'project'),connection=join(root,'connection.json');
+  await mkdir(project);await writeFile(join(project,'a.ts'),'const a = 1;');
+  const pairing=randomBytes(32).toString('base64url');let calls=0,modelAccess=404,accessDelay=0;const webRequests:boolean[]=[];const requestedModels:string[]=[];
+  const transport:typeof fetch=async(url,options)=>{
+    if(String(url).includes('/models/')){if(accessDelay)await new Promise(resolve=>setTimeout(resolve,accessDelay));return modelAccess===200?Response.json({id:String(url).split('/').at(-1)}):new Response('private provider error',{status:modelAccess});}
+    const body=JSON.parse(options!.body as string);
+    if(body.text?.format?.name==='task_plan') {
+      const input=JSON.parse(body.input.at(-1).content),plan=input.prompt.includes('change a')?{kind:'code',query:'',mode:'edit',paths:['a.ts']}:{kind:'chat',query:'',mode:'ask',paths:[]};
+      return new Response([{type:'response.output_text.delta',delta:JSON.stringify(plan)},{type:'response.completed',response:{status:'completed',output:[]}}].map(e=>`data: ${JSON.stringify(e)}\n\n`).join(''));
+    }
+    calls++;webRequests.push(!!body.tools);requestedModels.push(body.model);
+    let text='mock API chat answer';
+    if(body.text?.format){const input=JSON.parse(body.input.at(-1).content);text=JSON.stringify({summary:'mock API coding proposal',changes:input.mode==='ask'?[]:[{path:'a.ts',after:'const a = 2;'}]});}
+    const output=body.tools?[{content:[{annotations:[{type:'url_citation',title:'fixture source',url:'https://example.com',start_index:0,end_index:4}]}]}]:[];
+    return new Response([{type:'response.output_text.delta',delta:text},{type:'response.completed',response:{status:'completed',output,usage:{input_tokens:10,output_tokens:5,total_tokens:15}}}].map(e=>`data: ${JSON.stringify(e)}\n\n`).join(''));
+  };
+  const server=localAPI(pairing,()=>({openaiKey:'test-only-placeholder',models:chatModels({})}),transport);
+  await server.listen({host:'127.0.0.1',port:0});const address=server.server.address();if(!address||typeof address==='string')throw new Error('listener');
+  await writeFile(connection,JSON.stringify({url:`http://127.0.0.1:${address.port}`,pairing}));
+  const env=Object.fromEntries(Object.entries(process.env).filter((e):e is [string,string]=>e[1]!==undefined&&e[0]!=='ELECTRON_RUN_AS_NODE'&&e[0]!=='OPENAI_API_KEY'));
+  const packaged=process.env.TEST_LOCAL_PACKAGED_EXE;
+  const app=await electron.launch({...(packaged?{executablePath:resolve(packaged),args:[`--user-data-dir=${profile}`]}:{args:[resolve('.')]}),env:{...env,LOCAL_WORKSPACE_MODE:'1',LOCAL_WORKSPACE_ROSTER_FILE:'',LOCAL_AI_TEST_PROFILE:profile,LOCAL_AI_CONNECTION_FILE:connection}});
+  try{
+    const page=await app.firstWindow();await page.getByLabel('새 팀원 이름').fill('홍길동');await page.getByRole('button',{name:'개인 작업 공간 만들기'}).click();await page.getByRole('button',{name:'작업 공간 열기',exact:true}).click();
+    const modes=page.getByRole('navigation',{name:'주요 메뉴'});await expect(modes.getByRole('button')).toHaveText(['Chat','Work']);
+    await expect(page.getByRole('region',{name:'채팅 화면'})).toBeVisible();
+    const modelPicker=page.getByLabel('모델 선택',{exact:true});
+    await expect(modelPicker.locator('option')).toHaveText(['GPT-6.1 Sol','Astra']);
+    await expect(modelPicker).toHaveValue('gpt-6.1-sol');
+    await modelPicker.selectOption('gpt-6-astra');await expect(modelPicker).toHaveValue('gpt-6-astra');await modelPicker.selectOption('gpt-6.1-sol');
+    expect((await page.locator('.mode-shell > .sidebar').boundingBox())!.width).toBeLessThanOrEqual(200);
+    await page.getByLabel('메시지 입력',{exact:true}).fill('Chat private draft');
+    await expect(page.locator('#chat-availability')).toContainText('AI 전송을 사용할 수 없습니다');
+    await expect(page.getByRole('button',{name:'메시지 보내기',exact:true})).toBeDisabled();expect(calls).toBe(0);
+    await page.getByRole('button',{name:'연결 확인',exact:true}).click();
+    await expect(page.locator('.chat-page>.connection-feedback')).toHaveAttribute('data-state','failure');
+    await expect(page.locator('.chat-page>.connection-feedback')).toContainText('연결 확인 실패');
+    const appWindow=await app.browserWindow(page);await appWindow.evaluate(w=>{w.unmaximize();w.setSize(850,760);});
+    const composer=page.locator('.composer');await expect.poll(async()=> (await page.evaluate(()=>innerWidth))).toBeLessThan(900);
+    const narrow=(await composer.boundingBox())!.width;
+    await appWindow.evaluate(w=>w.maximize());
+    await expect.poll(async()=>(await composer.boundingBox())!.width).toBeGreaterThan(narrow*1.2);
+    const dimensions=await page.locator('.chat-page').evaluate(e=>({page:e.getBoundingClientRect().width,composer:e.querySelector('.composer')!.getBoundingClientRect().width}));
+    expect(dimensions.composer/dimensions.page).toBeGreaterThan(.8);expect(dimensions.composer/dimensions.page).toBeLessThan(.94);
+    await page.getByRole('button',{name:'대화 사이드바 토글'}).click();await expect(page.locator('.mode-shell > .sidebar')).toBeHidden();
+    await page.getByRole('button',{name:'대화 사이드바 토글'}).click();
+    await showMode(page,'Work');await expect(page.locator('.mode-shell > .sidebar')).toBeHidden();
+    const workWidth=await page.locator('.vscode-workbench').evaluate(e=>e.getBoundingClientRect().width);expect(Math.abs(workWidth-await page.evaluate(()=>innerWidth))).toBeLessThan(1);
+    await appWindow.evaluate(w=>{w.unmaximize();w.setSize(850,760);});await expect.poll(async()=>page.evaluate(()=>innerWidth)).toBeLessThan(900);
+    const narrowChat=(await page.locator('.chat-pane').boundingBox())!.width;
+    await appWindow.evaluate(w=>w.setFullScreen(true));
+    await expect.poll(async()=>(await page.locator('.chat-pane').boundingBox())!.width).toBeGreaterThan(narrowChat*1.2);
+    const ratio=await page.locator('.workbench-layout').evaluate(e=>e.querySelector('.chat-pane')!.getBoundingClientRect().width/e.getBoundingClientRect().width);
+    expect(ratio).toBeCloseTo(.28,1);
+    await page.getByRole('separator',{name:'챗봇 크기'}).press('ArrowLeft');
+    const resizedRatio=await page.locator('.workbench-layout').evaluate(e=>e.querySelector('.chat-pane')!.getBoundingClientRect().width/e.getBoundingClientRect().width);
+    expect(resizedRatio).toBeGreaterThan(ratio);
+    await appWindow.evaluate(w=>{w.setFullScreen(false);w.setSize(1000,760);});await expect.poll(async()=>page.evaluate(()=>innerWidth)).toBeLessThan(1100);
+    await expect.poll(async()=>page.locator('.workbench-layout').evaluate(e=>e.querySelector('.chat-pane')!.getBoundingClientRect().width/e.getBoundingClientRect().width)).toBeCloseTo(resizedRatio,2);
+    await appWindow.evaluate(w=>w.setFullScreen(true));
+    await showMode(page,'Chat');await expect(page.getByLabel('메시지 입력',{exact:true})).toHaveValue('Chat private draft');
+    modelAccess=200;accessDelay=500;await page.getByRole('button',{name:'연결 다시 확인',exact:true}).click();
+    await expect(page.locator('.chat-page>.connection-feedback')).toHaveAttribute('data-state','checking');
+    await expect(page.getByRole('button',{name:'확인 중…',exact:true}).first()).toBeDisabled();
+    await expect(page.locator('.chat-page>.connection-feedback')).toHaveAttribute('data-state','success');
+    await expect(page.locator('.chat-page>.connection-feedback')).toContainText('연결 정상');
+    await expect(page.locator('.chat-page>.connection-feedback small')).toContainText(/\d{2}:\d{2}:\d{2} 확인/);
+    accessDelay=0;await expect(page.locator('#chat-availability')).toHaveCount(0);
+    await expect(page.getByRole('button',{name:'메시지 보내기',exact:true})).toBeEnabled();
+    await page.getByLabel('웹 검색',{exact:true}).check();await page.getByRole('button',{name:'메시지 보내기',exact:true}).click();
+    await expect(page.getByRole('log')).toContainText('mock API chat answer');await expect(page.getByRole('button',{name:'응답 중단',exact:true})).toHaveCount(0);await page.screenshot({path:'test-results/chat-mode.png'});
+    await showMode(page,'Work');const chat=page.getByRole('region',{name:'통합 챗봇'});await chat.getByRole('button',{name:'연결 새로고침',exact:true}).click();await expect(chat.locator('#work-chat-availability')).toHaveCount(0);
+    await expect(chat.getByLabel('챗봇 모델').locator('option')).toHaveText(['GPT-6.1 Sol','Astra']);await expect(chat.getByLabel('챗봇 모델')).toHaveValue('gpt-6.1-sol');
+    await expect(chat.locator('.connection-feedback')).toHaveAttribute('data-state','success');
+    modelAccess=404;await chat.getByRole('button',{name:'연결 새로고침',exact:true}).click();
+    await expect(chat.locator('.connection-feedback')).toHaveAttribute('data-state','failure');
+    modelAccess=200;await chat.getByRole('button',{name:'연결 새로고침',exact:true}).click();
+    await expect(chat.locator('.connection-feedback')).toHaveAttribute('data-state','success');
+    await chat.getByLabel('챗봇 모델').selectOption('gpt-6-astra');
+    await chat.getByLabel('통합 챗봇 입력').fill('fixture question');await chat.getByRole('button',{name:'보내기',exact:true}).click();
+    await expect(chat.locator('.workbench-message.assistant')).toContainText('mock API chat answer');expect(webRequests).toEqual([true,true]);await expect(chat.getByRole('button',{name:'fixture source ↗',exact:true})).toBeVisible();
+    const list=await page.evaluate(()=>window.desktop.auth({action:'conversations'}));expect(list.ok).toBe(true);const conversation=list.ok?(list.data as {id:string}[])[0].id:'';
+    await app.evaluate(({dialog},project)=>{dialog.showOpenDialog=(async()=>({canceled:false,filePaths:[project]})) as typeof dialog.showOpenDialog;},project);
+    await page.getByRole('button',{name:'프로젝트 열기',exact:true}).click();await page.getByRole('complementary',{name:'파일 탐색기'}).getByRole('button',{name:'a.ts',exact:true}).click();
+    const editor=page.getByTestId('workspace-editor').locator('textarea.inputarea').last();await editor.focus();await page.keyboard.press('Control+A');await page.keyboard.insertText('const a = 9;');
+    await showMode(page,'Chat');await expect(page.getByRole('log')).toContainText('Chat private draft');
+    await showMode(page,'Work');await expect(page.locator('.workspace-editor .view-lines')).toContainText('const a = 9;');expect(await readFile(join(project,'a.ts'),'utf8')).toBe('const a = 1;');
+    await editor.focus();await page.keyboard.press('Control+A');await page.keyboard.insertText('const a = 1;');
+    await page.screenshot({path:'test-results/work-mode.png'});
+    await chat.getByLabel('통합 챗봇 입력').fill('change a to 2');await chat.getByRole('button',{name:'보내기',exact:true}).click();
+    await expect(page.locator('.agent-approval')).toContainText('파일 수정 승인');expect(await readFile(join(project,'a.ts'),'utf8')).toBe('const a = 1;');
+    await page.getByRole('button',{name:'이번 수정 승인',exact:true}).click();await expect.poll(()=>readFile(join(project,'a.ts'),'utf8')).toBe('const a = 2;');
+    await page.getByRole('button',{name:'프로필 전환',exact:true}).click();await page.getByLabel('새 팀원 이름').fill('김테스트');await page.getByRole('button',{name:'개인 작업 공간 만들기'}).click();await page.getByRole('button',{name:'작업 공간 열기',exact:true}).click();
+    await showMode(page,'Work');await expect(chat.getByLabel('챗봇 모델').locator('option')).toHaveText(['GPT-6.1 Sol','Astra']);expect(await page.evaluate(id=>window.desktop.auth({action:'messages',id}),conversation)).toMatchObject({ok:false,status:404});await expect(page.locator('.workbench-message')).toHaveCount(0);
+    expect(calls).toBe(3);expect(requestedModels).toEqual(['gpt-6.1-sol','gpt-6-astra','gpt-6.1-sol']);
+  }finally{for(const page of app.windows())await page.evaluate(()=>window.desktop.profiles({action:'leave'})).catch(()=>{});await app.close();await server.close();await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:200});}
+});

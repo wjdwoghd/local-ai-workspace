@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { GitSession, runGitProcess } from '../../src/main/git';
 import { LocalWorkspace } from '../../src/main/workspace';
-import { parseGitRequest, containsSecret, type GitApproval, type GitIntent, type GitView } from '../../../../packages/shared-types/git';
+import { parseGitRequest, containsSecret, type GitApproval, type GitIntent, type GitView, type GitFileDiff, type GitCommitFiles } from '../../../../packages/shared-types/git';
 vi.setConfig({ testTimeout: 30000 });
 
 let root: string; let workspace: LocalWorkspace; let id: string; let session: number; let git: GitSession;
@@ -27,12 +27,43 @@ it('validates IPC, pathspec injection and secret-bearing inputs', () => {
   for (const path of ['../x', ':x', '--all', '.env', 'a/.env.dev', 'dist/a.js', 'id_rsa.key']) expect(() => parseGitRequest({ action: 'diff', id, path })).toThrow();
   for (const raw of [{ action: 'status', id, cwd: root }, { action: 'prepare', id, intent: { ...intent('stage'), files: ['.'] } }, { action: 'decide', id, token: id, digest: 'x', accept: true }]) expect(() => parseGitRequest(raw)).toThrow();
   expect(containsSecret('ghp_' + 'a'.repeat(32))).toBe(true);
+  for(const raw of [{action:'commit-diff',id,commit:'HEAD',path:'file.txt'},{action:'diff',id,path:'file.txt',staged:'yes'},{action:'prepare',id,intent:{...intent('checkout'),base:'--detach'}},{action:'prepare',id,intent:{...intent('create-branch'),base:'a..b'}}])expect(()=>parseGitRequest(raw)).toThrow();
+});
+it('separates staged and working copies and exposes only safe committed file previews',async()=>{
+  await writeFile(join(root,'file.txt'),'original\n');command('add','--','file.txt');command('commit','-m','initial');
+  await writeFile(join(root,'file.txt'),'staged\n');command('add','--','file.txt');await writeFile(join(root,'file.txt'),'working\n');
+  const index=await git.execute({action:'diff',id,path:'file.txt',staged:true},guard,audit) as GitFileDiff;
+  const work=await git.execute({action:'diff',id,path:'file.txt',staged:false},guard,audit) as GitFileDiff;
+  expect(index).toMatchObject({original:'original\n',modified:'staged\n'});expect(work).toMatchObject({original:'staged\n',modified:'working\n'});
+  command('commit','-m','staged change');const head=command('rev-parse','HEAD').trim();
+  const files=await git.execute({action:'commit-files',id,commit:head},guard,audit) as GitCommitFiles;expect(files.files).toEqual([{path:'file.txt',status:'M',blocked:false}]);
+  const preview=await git.execute({action:'commit-diff',id,commit:head,path:'file.txt'},guard,audit);expect(preview).toMatchObject({original:'original\n',modified:'staged\n'});
+  expect(await readFile(join(root,'file.txt'),'utf8')).toBe('working\n');
+});
+it('returns actual merge parents and branch refs without a GitHub request during local status',async()=>{
+  await writeFile(join(root,'base.txt'),'base');command('add','--','base.txt');command('commit','-m','base');command('switch','-c','feature');
+  await writeFile(join(root,'feature.txt'),'feature');command('add','--','feature.txt');command('commit','-m','feature work');command('switch','main');
+  await writeFile(join(root,'main.txt'),'main');command('add','--','main.txt');command('commit','-m','main work');command('merge','--no-ff','feature','-m','merge feature');
+  const runner=vi.fn(async(exe:string,args:string[],cwd:string,input?:string,signal?:AbortSignal)=>{if(exe==='gh')throw new Error('must not query network');return runGitProcess(exe,args,cwd,input,signal);});
+  const reader=new GitSession(workspace,()=>session,runner);const view=await reader.execute({action:'status',id},guard,audit) as GitView;
+  expect(view.history[0]).toMatchObject({subject:'merge feature'});expect(view.history[0].parents).toHaveLength(2);expect(view.history.some(c=>c.refs.includes('feature'))).toBe(true);expect(view.branchHeads.main).toBe(view.head);
+  expect(runner.mock.calls.some(([exe])=>exe==='gh')).toBe(false);
+  const files=await reader.execute({action:'commit-files',id,commit:view.head},guard,audit) as GitCommitFiles;expect(files.files.some(f=>f.path==='feature.txt')).toBe(true);
+});
+it('creates and switches branches only after current approval and keeps dirty files untouched',async()=>{
+  await writeFile(join(root,'file.txt'),'base');command('add','--','file.txt');command('commit','-m','base');
+  const created=await prepare({...intent('create-branch'),base:'feature/new'});expect(command('branch','--show-current').trim()).toBe('main');await decide(created);expect(command('branch','--show-current').trim()).toBe('feature/new');expect(audit).toHaveBeenCalledWith('create-branch','succeeded');
+  await expect(prepare({...intent('create-branch'),base:'feature'})).rejects.toThrow('이름 경로');
+  await decide(await prepare({...intent('checkout'),base:'main'}));expect(command('branch','--show-current').trim()).toBe('main');
+  await writeFile(join(root,'file.txt'),'unsaved work');await expect(prepare({...intent('checkout'),base:'feature/new'})).rejects.toThrow('변경');expect(await readFile(join(root,'file.txt'),'utf8')).toBe('unsaved work');
+  command('add','--','file.txt');command('commit','-m','second');
+  const stale=await prepare({...intent('checkout'),base:'feature/new'});command('branch','-f','feature/new','main');await expect(decide(stale)).rejects.toThrow('변경');expect(command('branch','--show-current').trim()).toBe('main');
 });
 it('reads actual status/branch/diff and stages, unstages, commits only selected files', async () => {
   await writeFile(join(root, '선택.txt'), 'first'); await writeFile(join(root, 'other.txt'), 'keep');
   const view = await git.execute({ action: 'status', id }, guard, audit) as GitView;
   expect(view.branch).toBe('main'); expect(view.changes).toHaveLength(2); expect(view.github).toBeNull();
-  expect(await git.execute({ action: 'diff', id, path: '선택.txt' }, guard, audit)).toEqual({ diff: 'first' });
+  expect(await git.execute({ action: 'diff', id, path: '선택.txt' }, guard, audit)).toMatchObject({ kind:'file-diff',original:'',modified:'first',diff:'first' });
   await stage(['선택.txt']); expect(command('diff', '--cached', '--name-only')).toContain('선택.txt'); expect(command('diff', '--cached', '--name-only')).not.toContain('other.txt');
   await decide(await prepare(intent('unstage', ['선택.txt']))); expect(command('diff', '--cached', '--name-only')).toBe('');
   expect(await readFile(join(root, '선택.txt'), 'utf8')).toBe('first');

@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
 import { join, resolve, delimiter, isAbsolute, relative } from 'node:path';
 import { terminalEnvironment, type LocalWorkspace } from './workspace';
-import { blockedGitPath, containsSecret, gitPath, gitIndexPath, type GitApproval, type GitIntent, type GitRequest, type GitResult, type GitView } from '../../../../packages/shared-types/git';
+import { blockedGitPath, containsSecret, gitPath, gitIndexPath, type GitApproval, type GitIntent, type GitRequest, type GitResult, type GitView, type GitFileDiff, type GitCommit } from '../../../../packages/shared-types/git';
 import { assertApproval } from '../../../../packages/security/approvals';
 
 type Run = (exe: string, args: string[], cwd: string, input?: string, signal?: AbortSignal) => Promise<string>;
@@ -37,8 +37,9 @@ export class GitSession {
   private controller?: AbortController;
   private pending?: { id: string; session: number; snapshot: string; approval: GitApproval; remoteHead?: string; remoteBase?: string };
   private queue: Promise<unknown> = Promise.resolve();
+  private githubCache?:{root:string;login:string|null};
   constructor(private workspace: LocalWorkspace, private session: () => number, private run: Run = runGitProcess) {}
-  dispose() { this.epoch++; this.pending = undefined; this.controller?.abort(); }
+  dispose() { this.epoch++; this.pending = undefined;this.githubCache=undefined; this.controller?.abort(); }
   private async root(id: string) {
     const root = await this.workspace.path(id, '', true);
     const meta = await lstat(join(root, '.git'));
@@ -68,7 +69,16 @@ export class GitSession {
     } catch { return null; }
   }
   private async view(root: string): Promise<GitView> {
-    const status = await this.git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
+    const [status,branchText,headText,rawRemoteText,refs,log,upstreamText,counts]=await Promise.all([
+      this.git(root,['status','--porcelain=v1','-z','--untracked-files=all']),
+      this.git(root,['symbolic-ref','--quiet','--short','HEAD']).catch(()=>''),
+      this.git(root,['rev-parse','--verify','HEAD']).catch(()=>''),
+      this.git(root,['config','--get','remote.origin.url']).catch(()=>''),
+      this.git(root,['for-each-ref','--format=%(refname:short)%00%(objectname)','refs/heads']),
+      this.git(root,['log','--all','--topo-order','-60','--format=%H%x1f%P%x1f%s%x1f%an%x1f%aI%x1f%D%x1e']).catch(()=>''),
+      this.git(root,['rev-parse','--abbrev-ref','--symbolic-full-name','@{upstream}']).catch(()=>''),
+      this.git(root,['rev-list','--left-right','--count','HEAD...@{upstream}']).catch(()=>''),
+    ]);
     const parts = status.split('\0'); const changes: GitView['changes'] = [];
     for (let n = 0; n < parts.length && parts[n]; n++) {
       const row = parts[n]; const path = row.slice(3);
@@ -79,11 +89,28 @@ export class GitSession {
       try { gitIndexPath(path); } catch { unstageAllowed = false; }
       changes.push({ path, index: row[0], worktree: row[1], blocked, unstageAllowed });
     }
-    const branch = (await this.git(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() => '')).trim();
-    const head = (await this.git(root, ['rev-parse', '--verify', 'HEAD']).catch(() => '')).trim();
-    const rawRemote = (await this.git(root, ['config', '--get', 'remote.origin.url']).catch(() => '')).trim();
+    const branch=branchText.trim(),head=headText.trim(),rawRemote=rawRemoteText.trim();
     const remote = /^https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+(?:\.git)?$/.test(rawRemote) ? rawRemote : null;
-    return { root, branch, head, remote, branches: (await this.git(root, ['branch', '--format=%(refname:short)'])).trim().split('\n').filter(Boolean), changes, conflicts: changes.some(c => c.index === 'U' || c.worktree === 'U' || ['AA', 'DD'].includes(c.index + c.worktree)), github: await this.github(root) };
+    const branchHeads=Object.fromEntries(refs.trim().split('\n').filter(Boolean).map(row=>row.split('\0')));
+    const history:GitCommit[]=log.split('\x1e').flatMap(row=>{const fields=row.trim().split('\x1f');if(fields.length!==6||!/^[a-f0-9]{40,64}$/.test(fields[0]))return [];return [{id:fields[0],parents:fields[1].split(' ').filter(Boolean),subject:safeDiff(fields[2]),author:safeDiff(fields[3]),date:fields[4],refs:fields[5].split(', ').filter(Boolean).map(safeDiff)}];});
+    const [ahead=0,behind=0]=counts.trim().split(/\s+/).map(n=>Number(n)||0);
+    return { root, branch, head, remote, branches:Object.keys(branchHeads),branchHeads,history,upstream:upstreamText.trim(),ahead,behind, changes, conflicts: changes.some(c => c.index === 'U' || c.worktree === 'U' || ['AA', 'DD'].includes(c.index + c.worktree)), github:this.githubCache?.root===root?this.githubCache.login:null };
+  }
+  private async fileDiff(root:string,id:string,path:string,staged:boolean,view:GitView):Promise<GitFileDiff>{
+    const change=view.changes.find(c=>c.path===path);if(!change||change.blocked)throw new Error('파일이 없거나 보호된 경로입니다.');
+    if(staged&&!change.unstageAllowed)throw new Error('스테이징된 변경이 없습니다.');
+    const original=staged ? (!view.head||change.index==='A'?'':await this.git(root,['show',`HEAD:${path}`])) : (change.index==='?'||change.index==='D'?'':await this.git(root,['show',`:${path}`]));
+    const modified=staged ? (change.index==='D'?'':await this.git(root,['show',`:${path}`])) : (change.worktree==='D'?'':(await this.workspace.read(id,path)).text);
+    if([original,modified].some(s=>s.includes('\0')||Buffer.byteLength(s)>2*1024*1024||containsSecret(s)))throw new Error('비밀정보·바이너리·크기 제한으로 이 diff를 표시할 수 없습니다.');
+    const diff=change.index==='?'?modified:await this.git(root,['diff',...(staged?['--cached']:[]),'--no-ext-diff','--no-textconv','--',path]);
+    return {kind:'file-diff',path,original,modified,diff:safeDiff(diff),label:staged?'HEAD ↔ 스테이징':'스테이징 ↔ 작업 파일'};
+  }
+  private async commitFiles(root:string,commit:string,view:GitView){
+    const entry=view.history.find(c=>c.id===commit);if(!entry)throw new Error('현재 표시된 이력의 커밋을 선택하세요.');
+    const parts=(await this.git(root,['diff-tree','--root','--no-commit-id','--name-status','-z','-r','--no-renames','--no-ext-diff','--no-textconv',...(entry.parents.length?[entry.parents[0]]:[]),commit,'--'])).split('\0').filter(Boolean);
+    const files:{path:string;status:string;blocked:boolean}[]=[];
+    for(let i=0;i<parts.length;i+=2){const path=parts[i+1];if(!path)continue;let blocked=false;try{gitPath(path);}catch{blocked=true;}files.push({path,status:parts[i],blocked});}
+    return files;
   }
   private async snapshot(root: string, intent: GitIntent, view: GitView) {
     const diff = await this.git(root, ['diff', '--no-ext-diff', '--no-textconv', '--binary', 'HEAD', '--']).catch(async () => this.git(root, ['diff', '--cached', '--no-ext-diff', '--no-textconv', '--binary', '--']));
@@ -130,18 +157,24 @@ export class GitSession {
   }
   execute(request: GitRequest, guard: () => Promise<void>, record: (operation: GitIntent['operation'], outcome: 'started' | 'succeeded' | 'failed') => Promise<void>): Promise<GitResult> {
     const generation = this.session(); const epoch = this.epoch;
-    const task = this.queue.catch(() => {}).then(async () => {
+    const task = this.queue.catch(() => {}).then(async ():Promise<GitResult> => {
       if (epoch !== this.epoch) throw new Error('만료된 작업');
       this.controller = new AbortController();
       const check = async () => { await guard(); if (generation !== this.session() || epoch !== this.epoch) throw new Error('사용자 세션 또는 작업공간이 변경되었습니다.'); this.workspace.assertCurrent(request.id); };
       await check(); const root = await this.root(request.id); const view = await this.view(root); await check();
       if (request.action === 'status') return view;
+      if(request.action==='connection'){view.github=await this.github(root);await check();this.githubCache={root,login:view.github};return view;}
       if (request.action === 'diff') {
-        const change = view.changes.find(c => c.path === request.path); if (!change || change.blocked) throw new Error('파일이 없거나 차단되었습니다.');
-        let diff: string;
-        if (change.index === '?') diff = (await this.workspace.read(request.id, request.path)).text;
-        else diff = await this.git(root, ['diff', '--no-ext-diff', '--no-textconv', '--', request.path]) + await this.git(root, ['diff', '--cached', '--no-ext-diff', '--no-textconv', '--', request.path]);
-        await check(); return { diff: safeDiff(diff) };
+        const result=await this.fileDiff(root,request.id,request.path,request.staged??false,view);await check();return result;
+      }
+      if(request.action==='commit-files'){const files=await this.commitFiles(root,request.commit,view);await check();return {kind:'commit-files',commit:request.commit,files};}
+      if(request.action==='commit-diff'){
+        const files=await this.commitFiles(root,request.commit,view),file=files.find(f=>f.path===request.path);if(!file||file.blocked)throw new Error('커밋 파일을 표시할 수 없습니다.');
+        const parent=view.history.find(c=>c.id===request.commit)!.parents[0];
+        const original=parent&&file.status!=='A'?await this.git(root,['show',`${parent}:${request.path}`]):'';
+        const modified=file.status==='D'?'':await this.git(root,['show',`${request.commit}:${request.path}`]);
+        if([original,modified].some(s=>s.includes('\0')||Buffer.byteLength(s)>2*1024*1024||containsSecret(s)))throw new Error('비밀정보·바이너리·크기 제한으로 이 diff를 표시할 수 없습니다.');
+        await check();return {kind:'file-diff',path:request.path,original,modified,diff:'',label:`${request.commit.slice(0,7)} · 부모 커밋 ↔ 선택 커밋`};
       }
       if (request.action === 'prepare') {
         this.pending = undefined; const intent = structuredClone(request.intent);
@@ -154,7 +187,14 @@ export class GitSession {
           if (c?.worktree !== 'D' && containsSecret((await this.workspace.read(request.id, path)).text)) throw new Error('선택 파일에 비밀정보가 의심됩니다.');
         }
         if (intent.operation === 'commit') await this.inspectIndex(root);
+        if(['checkout','create-branch'].includes(intent.operation)){
+          if(view.changes.length||!view.head)throw new Error('변경을 커밋하거나 직접 보관한 뒤 브랜치를 변경하세요. 자동 stash는 하지 않습니다.');
+          await this.git(root,['check-ref-format','--branch',intent.base]);
+          if(intent.operation==='checkout'&&!view.branches.includes(intent.base)||intent.operation==='create-branch'&&view.branches.includes(intent.base))throw new Error('브랜치가 없거나 이미 존재합니다. 목록을 새로고침하세요.');
+          if(intent.operation==='create-branch'&&view.branches.some(b=>b.startsWith(intent.base+'/')||intent.base.startsWith(b+'/')))throw new Error('기존 브랜치와 이름 경로가 겹칩니다. 다른 브랜치 이름을 사용하세요.');
+        }
         if (['push', 'pull', 'pr'].includes(intent.operation)) {
+          view.github=await this.github(root);this.githubCache={root,login:view.github};
           if (!view.remote || !view.github) throw new Error('HTTPS origin과 안전하게 로그인한 GitHub CLI가 필요합니다.');
           const config = await this.git(root, ['config', '--list']);
           if (/^url\..*\.(?:insteadof|pushinsteadof)=/im.test(config)) throw new Error('URL 재작성 설정이 있는 저장소는 지원하지 않습니다.');
@@ -204,6 +244,8 @@ export class GitSession {
             else await this.git(root, ['rm', '--cached', '--', ...intent.files]);
             break;
           case 'commit': await this.inspectIndex(root); await check(); await this.git(root, ['commit', '-m', intent.message]); break;
+          case 'checkout':await this.git(root,['switch','--no-guess',intent.base]);break;
+          case 'create-branch':await this.git(root,['switch','--no-guess','-c',intent.base]);break;
           case 'push': await this.inspectHistory(root); await check(); await this.git(root, ['-c', 'push.followTags=false', '-c', 'remote.origin.mirror=false', 'push', '--porcelain', '--recurse-submodules=no', view.remote!, `HEAD:refs/heads/${view.branch}`]); break;
           case 'pull':
             await this.git(root, ['fetch', '--no-tags', '--no-recurse-submodules', view.remote!, `refs/heads/${view.branch}`]); await check();

@@ -1,3 +1,4 @@
+import { showMode, openAppTool, closeAppTool } from './support/mode-ui';
 import { test, expect, _electron as electron } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -66,7 +67,7 @@ test("채팅·설정·테마 재실행 복원과 Electron 보안", async () => {
         node: typeof (window as unknown as { require?: unknown }).require,
         api: Object.keys(window.desktop).sort(),
       })),
-    ).toEqual({ node: "undefined", api: ["agent", "auth", "cancelChat", "getInfo", "git", "importDocument", "openSource", "setTheme", "streamChat", "workspace"] });
+    ).toEqual({ node: "undefined", api: ["agent", "auth", "cancelChat", "copyText", "getInfo", "git", "importDocument", "openSource", "planChat", "profiles", "setTheme", "streamChat", "workspace"] });
     expect(await page.evaluate(() => Object.keys(window.desktop.agent))).toEqual(['execute']);
     await expect(page.evaluate(() => window.desktop.openSource('file:///C:/secret'))).rejects.toThrow();
     await expect(page.evaluate(() => window.desktop.openSource('javascript:alert(1)'))).rejects.toThrow();
@@ -87,8 +88,8 @@ test("채팅·설정·테마 재실행 복원과 Electron 보안", async () => {
       .getByRole("button", { name: "안녕하세요" })
       .click();
     await expect(page.getByRole("log")).toContainText("안녕하세요!");
-    await page.getByRole("button", { name: "설정", exact: true }).click();
-    await expect(page.getByTestId("app-version")).toHaveText("0.1.0");
+    await openAppTool(page,'설정');
+    await expect(page.getByTestId("app-version")).toHaveText("0.1.8");
     for (const [label, value] of [
       ["라이트", "light"],
       ["시스템", "system"],
@@ -123,9 +124,9 @@ test("채팅·설정·테마 재실행 복원과 Electron 보안", async () => {
     await expect(page.getByRole("heading", { name: "로그인", exact: true })).toBeVisible();
     await login(page, "alice", fixture.password);
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-    await page.getByRole("button", { name: "설정", exact: true }).click();
+    await openAppTool(page,'설정');
     await expect(page.getByRole("radio", { name: /다크/ })).toBeChecked();
-    await page.getByRole("button", { name: "채팅", exact: true }).click();
+    await showMode(page,'Chat');
     await expect(page.getByRole("log")).toHaveCount(0);
     await page.setViewportSize({ width: 680, height: 560 });
     expect(

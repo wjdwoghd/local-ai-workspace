@@ -2,8 +2,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { AGENT_LIMITS, agentPath, type AgentApproval, type AgentChange, type AgentMode, type AgentScope, type AgentView } from '../../../../packages/shared-types/agent';
 import type { LocalWorkspace } from './workspace';
 import { assertApproval } from '../../../../packages/security/approvals';
+import { parseCodeOutput, type CodeInput, type CodeOutput } from '../../../../packages/shared-types/coding';
 
-const setup = '설정 필요: 서버 전용 인증 중계·허용 코딩 모델·도구 격리가 검증되지 않았습니다. 실제 Codex 연결과 AI 명령 실행은 비활성화되어 있습니다.';
+const setup = 'AI 코딩은 서버 API 연결이 필요합니다. 열린 파일 전송을 확인하고 요청하세요. AI 명령 실행은 비활성화되어 있습니다.';
 const digest = (scope: AgentScope, changes: AgentChange[]) => createHash('sha256').update(JSON.stringify({ scope, changes })).digest('hex');
 // No process, credential, global Codex config, disk history or PTY capability is held here.
 export class AgentSession {
@@ -49,6 +50,20 @@ export class AgentSession {
       this.view = { ...this.view, state: 'failed', message: error instanceof Error && !('code' in error) ? error.message : '파일 검사 실패: 경로·권한을 확인하세요.' };
     }
     return structuredClone(this.view);
+  }
+  async generate(id:string,mode:AgentMode,paths:string[],prompt:string,request:(input:CodeInput)=>Promise<CodeOutput & {model:string}>){
+    if(this.workspace.dirty)throw new Error('저장하지 않은 편집을 먼저 저장하세요.');
+    const inspected=await this.analyze(id,mode,paths);if(inspected.state!=='ready')return inspected;
+    const scope={...this.scope!},epoch=this.epoch;const files:CodeInput['files']=[];
+    try{
+      for(const item of inspected.files){const f=await this.workspace.read(id,item.path);this.assertScope(scope);if(epoch!==this.epoch||f.version!==item.version||this.workspace.dirty)throw new Error('검사 후 파일·권한 변경');files.push({path:f.path,text:f.text,version:f.version});}
+      const input={mode,prompt,files};this.view.state='running';this.view.message='서버 API로 선택한 파일을 분석 중입니다.';
+      const response=await request(input);this.assertScope(scope);if(epoch!==this.epoch||this.workspace.dirty)throw new Error('중단 또는 미저장 변경');
+      const {model,...raw}=response,result=parseCodeOutput(raw,input);
+      this.view={...this.view,source:'api',model,authentication:'server',state:'completed',message:result.summary};
+      if(result.changes.length){await this.propose(scope,result.changes.map(c=>{const f=files.find(f=>f.path===c.path)!;return{path:c.path,before:f.text,after:c.after,version:f.version};}));this.view.message=result.summary+'\n변경 내용을 확인하고 승인하세요.';}
+      return structuredClone(this.view);
+    }catch(e){if(epoch!==this.epoch||scope.session!==this.session())throw new Error('중단되거나 이전 프로필의 요청입니다.');this.view={...this.view,state:'failed',message:e instanceof Error&&!('code'in e)?e.message:'AI 코딩 요청 실패. 파일은 변경하지 않았습니다.'};return structuredClone(this.view);}
   }
   // Internal adapter boundary only. Renderer cannot inject proposals or change their content.
   async propose(scope: AgentScope, changes: AgentChange[]) {

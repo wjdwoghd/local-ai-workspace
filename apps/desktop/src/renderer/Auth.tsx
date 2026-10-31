@@ -3,8 +3,16 @@ import type { ConversationMeta, Settings, User } from "../../../../packages/shar
 import App from "./App";
 import { request } from "./api";
 import { confirmWorkspaceLeave } from './workspace-guard';
+import { LocalProfiles } from './LocalProfiles';
 
 export default function Auth() {
+  const [mode, setMode] = useState<'local' | 'server'>();
+  const [error, setError] = useState('');
+  useEffect(() => { void window.desktop.getInfo().then(info => setMode(info.mode)).catch(() => setError('앱 실행 모드를 확인할 수 없습니다.')); }, []);
+  if (!mode) return <main className="login-page"><p role="status">{error || '작업 공간을 준비하는 중…'}</p></main>;
+  return mode === 'local' ? <LocalProfiles /> : <ServerAuth />;
+}
+function ServerAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -72,13 +80,13 @@ function Workspace({ user, logout }: { user: User; logout: () => void }) {
     return () => { cancelled = true; };
   }, []);
   return <div className="signed-workspace">
-    <div className="session-bar"><span>{user.username} · {user.role === "admin" ? "관리자" : "일반 사용자"}</span>
+    {admin&&<div className="session-bar"><span>{user.username} · 관리자</span>
       {user.role === "admin" && <button onClick={() => setAdmin(a => !a)}>{admin ? "내 워크스페이스" : "계정 관리"}</button>}
       <button onClick={logout}>로그아웃</button>
-    </div>
+    </div>}
     {error && <p role="alert">{error}</p>}
     {admin && <Accounts />}
-    <div hidden={admin}>{data ? <App user={user} initial={data} /> : <p role="status">개인 설정과 대화 목록을 불러오는 중…</p>}</div>
+    <div hidden={admin}>{data ? <App user={user} initial={data} controls={<><span className="mode-user">{user.username}</span>{user.role==='admin'&&<button onClick={()=>setAdmin(true)}>계정 관리</button>}<button onClick={logout}>로그아웃</button></>} /> : <p role="status">개인 설정과 대화 목록을 불러오는 중…</p>}</div>
   </div>;
 }
 function Accounts() {
@@ -99,7 +107,7 @@ function Accounts() {
       e.preventDefault(); const f = new FormData(e.currentTarget); e.currentTarget.reset();
       void act(() => request({ action: "createUser", username: String(f.get("username")), password: String(f.get("password")), role: f.get("role") as User["role"] }));
     }}>
-      <label>새 계정 이름<input name="username" required minLength={3} maxLength={64} autoComplete="off" /></label>
+      <label>새 계정 이름<input name="username" required minLength={2} maxLength={64} autoComplete="off" /></label>
       <label>초기 비밀번호<input name="password" type="password" required minLength={12} maxLength={128} autoComplete="new-password" /></label>
       <label>역할<select name="role"><option value="user">일반 사용자</option><option value="admin">관리자</option></select></label>
       <button disabled={busy}>계정 생성</button>

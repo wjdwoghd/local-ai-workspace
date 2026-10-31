@@ -1,4 +1,4 @@
-import { BrowserWindow, session } from "electron";
+import { app, BrowserWindow, session } from "electron";
 import { join } from "node:path";
 
 export function createWindow() {
@@ -7,7 +7,7 @@ export function createWindow() {
     height: 820,
     minWidth: 680,
     minHeight: 560,
-    title: "Local AI Workspace",
+    title: `Local AI Workspace ${app.getVersion()}`,
     backgroundColor: "#17201f",
     show: false,
     autoHideMenuBar: true,

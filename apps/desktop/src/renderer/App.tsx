@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ThemePreference } from "../../../../packages/shared-types/ipc/desktop";
 import { demoReply } from "./features/chat/demo";
 import type { ChatMessage, ChatStatus } from '../../../../packages/shared-types/chat';
@@ -7,6 +7,10 @@ import { request } from "./api";
 import { Documents, Sources } from './Documents';
 import { Workspace } from './Workspace';
 import { Collaboration } from './Collaboration';
+import { AppDialog } from './AppDialog';
+import { ChatConnectionNotice, ConnectionFeedback } from './ChatConnectionNotice';
+import { AttachmentList, AttachmentPicker, useAttachments } from './Attachments';
+import { ReasoningPicker,useReasoning } from './ReasoningPicker';
 
 const themes: {
   value: ThemePreference;
@@ -34,41 +38,65 @@ const themes: {
   },
 ];
 
-export default function App({ user, initial }: { user: User; initial: { settings: Settings; conversations: ConversationMeta[] } }) {
-  const [conversations, setConversations] = useState<(ConversationMeta & { messages: ChatMessage[] })[]>(() => initial.conversations.map(c => ({ ...c, messages: [] })));
+const freshDraft = () => ({id:`draft-${crypto.randomUUID()}`,title:'새 대화',messages:[] as ChatMessage[]});
+export default function App({ user, initial, local=false, controls, extraSettings, onThemeChange }: { user: User; initial: { settings: Settings; conversations: ConversationMeta[] }; local?:boolean; controls?:ReactNode; extraSettings?:ReactNode; onThemeChange?(theme:ThemePreference):void }) {
+  const [conversations, setConversations] = useState<(ConversationMeta & { messages: ChatMessage[] })[]>(() => initial.conversations.length?initial.conversations.map(c => ({ ...c, messages: [] })):[freshDraft()]);
   const [demoMessages, setDemoMessages] = useState<Record<string, ChatMessage[]>>({});
   const [model, setModel] = useState('');
   const [status, setStatus] = useState<ChatStatus>();
+  const reasoning=useReasoning(user.id,status?.models.find(m=>m.id===model));
+  const [checking, setChecking] = useState(false);
+  const [connectionCheckedAt, setConnectionCheckedAt] = useState<number>();
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const sending = useRef(false);
   const alive = useRef(true);
   const [activeId, setActiveId] = useState(conversations[0].id);
-  const [page, setPage] = useState<"chat" | "settings" | "documents" | "workspace" | "collaboration">("chat");
+  const skipHistory=useRef('');
+  const [page, setPage] = useState<'chat'|'workspace'>('chat');
+  const [overlay,setOverlay]=useState<'settings'|'documents'|'collaboration'|null>(null);
+  const [sidebarOpen,setSidebarOpen]=useState(true);
   useEffect(() => { const show = () => setPage('workspace'); window.addEventListener('workspace-focus', show); return () => window.removeEventListener('workspace-focus', show); }, []);
+  useEffect(()=>{const key=(e:KeyboardEvent)=>{if(page==='chat'&&e.ctrlKey&&e.code==='KeyB'){e.preventDefault();setSidebarOpen(v=>!v);}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[page]);
   const [webSearch, setWebSearch] = useState(false);
   const [documentSearch, setDocumentSearch] = useState(false);
   const [draft, setDraft] = useState("");
+  const [failedRequest,setFailedRequest]=useState<{id:string;text:string}>();
   const [theme, setTheme] = useState<ThemePreference>(initial.settings.theme);
   const [version, setVersion] = useState("");
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const attachment = useAttachments(setError);
   const input = useRef<HTMLTextAreaElement>(null);
   const end = useRef<HTMLDivElement>(null);
   const stored = conversations.find((item) => item.id === activeId)!;
   const demo = model === 'demo';
   const current = demo ? { ...stored, messages: demoMessages[activeId] ?? [] } : stored;
 
+  async function refreshStatus(manual = false) {
+    setChecking(true);
+    try { const s=await request<ChatStatus>({action:'chatStatus'}); if(alive.current){setStatus(s);setError('');setModel(value=>value==='demo'||s.models.some(m=>m.id===value)?value:s.models[0]?.id||'');} }
+    catch(e){if(alive.current){const message=(e as Error).message;setError(message);setStatus(previous=>({configured:false,models:previous?.models??[],message}));}}
+    finally{if(alive.current){setChecking(false);if(manual)setConnectionCheckedAt(Date.now());}}
+  }
+
+  useEffect(()=>{
+    if(!local)return;let live=true;
+    void request<ConversationMeta[]>({action:'conversations'}).then(items=>{if(live&&items.length){setConversations(old=>[...old,...items.filter(c=>!old.some(o=>o.id===c.id)).map(c=>({...c,messages:[]}))]);}}).catch(()=>{});
+    return()=>{live=false;};
+  },[local]);
+
   useEffect(() => {
     alive.current = true;
-    void request<ChatStatus>({ action: 'chatStatus' }).then(s => { if (alive.current) { setStatus(s); setModel(value => value || s.models[0]?.id || ''); } }).catch(e => { if (alive.current) setError(e.message); });
+    void refreshStatus();
     return () => { alive.current = false; void window.desktop.cancelChat(); };
   }, []);
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setError('');
+    if(activeId.startsWith('draft-')||skipHistory.current===activeId){skipHistory.current='';setLoading(false);return;}
     request<ChatMessage[]>({ action: 'messages', id: activeId }).then(messages => {
       if (!cancelled) {
         setConversations(items => items.map(c => c.id === activeId ? { ...c, messages } : c));
@@ -99,6 +127,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
   }, [theme]);
+  useEffect(()=>setTheme(initial.settings.theme),[initial.settings.theme]);
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth" });
   }, [current.messages, page, activeId]);
@@ -106,20 +135,22 @@ export default function App({ user, initial }: { user: User; initial: { settings
   async function newChat() {
     if (sending.current) return;
     try {
-      const meta = await request<ConversationMeta>({ action: "createConversation", title: "새 대화" });
+      const meta = local?freshDraft():await request<ConversationMeta>({ action: "createConversation", title: "새 대화" });
       const chat = { ...meta, messages: [] };
       setConversations((items) => [chat, ...items]);
-      setActiveId(chat.id); setPage("chat"); setDraft("");
+      setActiveId(chat.id); setPage("chat"); setDraft(""); attachment.clear();
       requestAnimationFrame(() => input.current?.focus());
     } catch (e) { setError((e as Error).message); }
   }
   async function send(text = draft) {
-    text = text.trim();
-    if (!text || text.length > 4000 || sending.current || loading || (!demo && !status?.configured)) return;
-    sending.current = true; setBusy(true); setError('');
-    const id = activeId;
+    text = text.trim() || (attachment.attachments.length ? '첨부한 파일과 이미지를 분석해 주세요.' : '');
+    const attached = attachment.attachments;
+    if (!text || text.length > 4000 || sending.current || loading || attachment.loading || (!demo && !status?.configured)) return;
+    sending.current = true; setBusy(true); setError('');setFailedRequest(undefined);setDraft('');
+    let id = activeId;
     const before = stored.messages;
     try {
+      if(id.startsWith('draft-')&&!demo){const draftId=id;const meta=await request<ConversationMeta>({action:'createConversation',title:text.slice(0,28)});skipHistory.current=meta.id;setConversations(items=>items.map(c=>c.id===draftId?{...meta,messages:[]}:c));id=meta.id;setActiveId(meta.id);}
       if (demo) {
         const title = current.messages.length ? current.title : text.slice(0, 28);
         await request({ action: 'updateConversation', id, title });
@@ -127,14 +158,13 @@ export default function App({ user, initial }: { user: User; initial: { settings
         setDemoMessages(items => ({ ...items, [id]: [...(items[id] ?? []),
           { id: crypto.randomUUID(), role: 'user', text, model: 'demo' },
           { id: crypto.randomUUID(), role: 'assistant', text: demoReply(text), model: 'demo' }] }));
-        setDraft(''); return;
+        return;
       }
       const assistantId = crypto.randomUUID();
       setConversations(items => items.map(c => c.id === id ? { ...c, messages: [...before,
-        { id: crypto.randomUUID(), role: 'user', text, model },
+        { id: crypto.randomUUID(), role: 'user', text, model, ...(attached.length?{attachments:attached}:{}) },
         { id: assistantId, role: 'assistant', text: '', model }] } : c));
-      setDraft('');
-      const result = await window.desktop.streamChat({ id, text, model, webSearch, documentSearch }, event => {
+      const result = await window.desktop.streamChat({ id, text, model,...(reasoning.effort?{reasoningEffort:reasoning.effort}:{}), webSearch, documentSearch, ...(attached.length?{attachments:attached}:{}) }, event => {
         if (alive.current && event.type === 'sources') setConversations(items => items.map(c => c.id === id ? { ...c, messages: c.messages.map(m => m.id === assistantId ? { ...m, citations: event.citations } : m) } : c));
         if (alive.current && event.type === 'delta') setConversations(items => items.map(c => c.id === id ? {
           ...c, messages: c.messages.map(m => m.id === assistantId ? { ...m, text: m.text + event.text } : m),
@@ -145,12 +175,13 @@ export default function App({ user, initial }: { user: User; initial: { settings
         if (result.status === 401) window.dispatchEvent(new Event('session-expired'));
         throw new Error(result.message);
       }
+      attachment.clear();
       const messages = await request<ChatMessage[]>({ action: 'messages', id });
       const meta = await request<ConversationMeta>({ action: 'getConversation', id });
       if (alive.current) setConversations(items => items.map(c => c.id === id ? { ...meta, messages } : c));
     } catch (e) {
       if (alive.current) {
-        setError((e as Error).message); setDraft(text);
+        setError((e as Error).message);setFailedRequest({id,text});
         // Reconcile a lost final event: the server may already have committed the turn.
         try {
           const messages = await request<ChatMessage[]>({ action: 'messages', id });
@@ -168,6 +199,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
     try {
       await request({ action: "saveSettings", theme: value });
       setTheme(value);
+      onThemeChange?.(value);
       setNotice("테마 설정을 저장했습니다.");
     } catch {
       setError("테마를 저장하지 못했습니다. 다시 시도해 주세요.");
@@ -177,7 +209,16 @@ export default function App({ user, initial }: { user: User; initial: { settings
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell mode-shell ${page==='workspace'?'work-mode':'chat-mode'} ${!sidebarOpen?'history-collapsed':''}`}>
+      <header className="mode-bar session-bar">
+        {page==='chat'&&<button className="mode-icon" aria-label="대화 사이드바 토글" aria-expanded={sidebarOpen} onClick={()=>setSidebarOpen(v=>!v)}>☰</button>}
+        {page==='chat'&&!sidebarOpen&&<button aria-label="대화 만들기" disabled={busy} onClick={()=>void newChat()}>＋</button>}
+        <strong className="compact-brand">Local AI</strong>
+        <nav aria-label="주요 메뉴"><button aria-current={page==='chat'?'page':undefined} onClick={()=>{setOverlay(null);setPage('chat');}}>Chat</button><button aria-current={page==='workspace'?'page':undefined} onClick={()=>{setOverlay(null);setPage('workspace');}}>Work</button></nav>
+        <div className="mode-bar-spacer" />
+        <details className="mode-tools" onClick={e=>{if((e.target as HTMLElement).closest('button'))e.currentTarget.open=false;}}><summary>도구</summary><div><button onClick={()=>{setOverlay('settings');setNotice('');}}>설정</button>{!local&&<><button onClick={()=>setOverlay('documents')}>문서 관리</button><button onClick={()=>setOverlay('collaboration')}>팀 자료·사용량</button></>}</div></details>
+        {controls}
+      </header>
       <a
         className="skip-link"
         href="#main"
@@ -188,30 +229,10 @@ export default function App({ user, initial }: { user: User; initial: { settings
       >
         본문으로 건너뛰기
       </a>
-      <aside className="sidebar" aria-label="사이드바">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            ✳
-          </span>
-          <div>
-            Local AI<span>WORKSPACE</span>
-          </div>
-        </div>
+      <aside className="sidebar" aria-label="사이드바" hidden={page==='workspace'||!sidebarOpen}>
         <button className="new-chat" onClick={newChat} disabled={busy}>
           <span aria-hidden="true">＋</span> 새 대화 <kbd>↵</kbd>
         </button>
-        <nav aria-label="주요 메뉴">
-          <button className={page === 'collaboration' ? 'nav-item selected' : 'nav-item'} aria-current={page === 'collaboration' ? 'page' : undefined} onClick={() => setPage('collaboration')}>팀 협업 · 사용량</button>
-          <button
-            className={page === "chat" ? "nav-item selected" : "nav-item"}
-            aria-current={page === "chat" ? "page" : undefined}
-            onClick={() => setPage("chat")}
-          >
-            <span aria-hidden="true">▤</span> 채팅
-          </button>
-          <button className={page === 'documents' ? 'nav-item selected' : 'nav-item'} aria-current={page === 'documents' ? 'page' : undefined} onClick={() => setPage('documents')}><span aria-hidden="true">⌕</span> 웹·파일 검색</button>
-          <button className={page === 'workspace' ? 'nav-item selected' : 'nav-item'} aria-current={page === 'workspace' ? 'page' : undefined} onClick={() => setPage('workspace')}><span aria-hidden="true">⌘</span> 로컬 개발 환경</button>
-        </nav>
         <div className="history-label">
           내 대화 <span>{conversations.length}</span>
         </div>
@@ -227,6 +248,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
               onClick={() => {
                 setActiveId(chat.id);
                 setDraft("");
+                attachment.clear();
                 setPage("chat");
               }}
             >
@@ -240,16 +262,6 @@ export default function App({ user, initial }: { user: User; initial: { settings
             <span className="status-dot" /> {demo ? '로컬 데모 모드' : 'AI 채팅'}
             <p>{demo ? 'Astra · 실제 AI 연결 없음' : status?.message || 'AI 설정 확인 중…'}</p>
           </div>
-          <button
-            className={`nav-item ${page === "settings" ? "selected" : ""}`}
-            aria-current={page === "settings" ? "page" : undefined}
-            onClick={() => {
-              setPage("settings");
-              setNotice("");
-            }}
-          >
-            <span aria-hidden="true">⚙</span> 설정
-          </button>
           <div className="profile">
             <span className="avatar">나</span>
             <div>
@@ -259,21 +271,14 @@ export default function App({ user, initial }: { user: User; initial: { settings
         </div>
       </aside>
       <main id="main" tabIndex={-1}>
-        <header className="topbar">
-          <div>
-            {page === "chat" ? "워크스페이스 / 채팅" : page === 'workspace' ? '워크스페이스 / 로컬 개발 환경' : page === 'documents' ? '워크스페이스 / 웹·파일 검색' : page === 'collaboration' ? '워크스페이스 / 팀 협업 · 사용량' : "워크스페이스 / 설정"}
-          </div>
-          <span className="demo-badge">
-            <span className="status-dot" /> {demo ? 'DEMO' : 'AI'}
-          </span>
-        </header>
         {error && (
           <div className="error" role="alert">
             {error}
+            {failedRequest?.id===activeId&&<button disabled={busy} onClick={()=>{setDraft(failedRequest.text);setFailedRequest(undefined);input.current?.focus();}}>실패한 요청 다시 입력</button>}
           </div>
         )}
-        <div className="workspace-container" hidden={page !== 'workspace'}><Workspace /></div>
-        {page === 'workspace' ? null : page === 'collaboration' ? <Collaboration user={user} /> : page === 'documents' ? <Documents user={user} /> : page === "chat" ? (
+        <div className="workspace-container" hidden={page !== 'workspace'}><Workspace local={local} visible={page==='workspace'} reasoningScope={user.id}/></div>
+        {page === "chat" && (
           <section className="chat-page" aria-label="채팅 화면">
             <div className="chat-heading">
               <div>
@@ -284,20 +289,23 @@ export default function App({ user, initial }: { user: User; initial: { settings
               </div>
               <label className="model-picker">모델 선택
                 <select aria-label="모델 선택" value={model} disabled={busy} onChange={e => { setModel(e.target.value); setError(''); }}>
-                  {(status?.models ?? [{ id: '', label: 'Astra · 설정 확인 중' }]).map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-                  <option value="demo">Astra · 로컬 데모</option>
+                  {(status?.models ?? [{ id: '', label: 'GPT-6.1 Sol · 설정 확인 중' }]).map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                  {!local&&<option value="demo">Astra · 로컬 데모</option>}
                 </select>
               </label>
+              <ReasoningPicker value={reasoning.effort} levels={reasoning.levels} onChange={reasoning.select} disabled={busy||model==='demo'}/>
+              <button disabled={busy || checking} aria-busy={checking} onClick={()=>void refreshStatus(true)}>{checking ? '확인 중…' : '연결 확인'}</button>
               <button disabled={busy} onClick={async () => {
                 try {
                   let remaining = conversations.filter(c => c.id !== activeId);
                   // Create a replacement first so a failed request never leaves an empty UI.
-                  if (!remaining.length) remaining = [{ ...await request<ConversationMeta>({ action: "createConversation", title: "새 대화" }), messages: [] }];
-                  await request({ action: "deleteConversation", id: activeId });
-                  setConversations(remaining); setActiveId(remaining[0].id); setDraft("");
+                  if (!remaining.length) remaining = local?[freshDraft()]:[{ ...await request<ConversationMeta>({ action: "createConversation", title: "새 대화" }), messages: [] }];
+                  if(!activeId.startsWith('draft-'))await request({ action: "deleteConversation", id: activeId });
+                  setConversations(remaining); setActiveId(remaining[0].id); setDraft(""); attachment.clear();
                 } catch (e) { setError((e as Error).message); }
               }}>대화 삭제</button>
             </div>
+            <ConnectionFeedback status={status} checking={checking} checkedAt={connectionCheckedAt} />
             <div
               className={`message-scroll ${current.messages.length ? "" : "empty-scroll"}`}
             >
@@ -362,6 +370,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
                             <span>{message.model === 'demo' ? '데모 응답' : `${status?.models.find(m => m.id === message.model)?.label ?? message.model} · 실제 AI 응답`}</span>
                           )}
                         </div>
+                        <AttachmentList files={message.attachments||[]} />
                         <Sources text={message.text || '응답 생성 중…'} citations={message.citations} />
                       </div>
                     </article>
@@ -371,9 +380,13 @@ export default function App({ user, initial }: { user: User; initial: { settings
               )}
             </div>
             <div className="composer-wrap">
-              <fieldset className="search-options" disabled={busy || demo}><legend className="sr-only">답변 검색 도구</legend><label><input type="checkbox" checked={webSearch} onChange={e => setWebSearch(e.target.checked)} /> 웹 검색</label><label><input type="checkbox" checked={documentSearch} onChange={e => setDocumentSearch(e.target.checked)} /> 개인·팀 문서 검색</label><small>{demo ? '데모에서는 검색하지 않습니다.' : documentSearch ? '관련 문서 구간이 AI 제공업체로 전송됩니다.' : '필요한 검색 도구를 선택하세요.'}</small></fieldset>
+              <AttachmentPicker files={attachment.attachments} add={attachment.add} remove={attachment.remove} loading={attachment.loading} disabled={busy||demo} />
+              {!demo && <ChatConnectionNotice status={status} checking={checking} onRefresh={()=>void refreshStatus(true)} id="chat-availability" />}
+              <fieldset className="search-options" disabled={busy || demo}><legend className="sr-only">답변 검색 도구</legend><label><input type="checkbox" checked={webSearch} onChange={e => setWebSearch(e.target.checked)} /> 웹 검색</label>{!local&&<label><input type="checkbox" checked={documentSearch} onChange={e => setDocumentSearch(e.target.checked)} /> 개인·팀 문서 검색</label>}{!local&&<button onClick={()=>setOverlay('documents')}>파일 첨부·관리</button>}<small>{demo ? '데모에서는 검색하지 않습니다.' : documentSearch ? '관련 문서 구간이 AI 제공업체로 전송됩니다.' : ''}</small></fieldset>
               <form
                 className="composer"
+                onDragOver={e=>{if(!busy&&!demo)e.preventDefault();}}
+                onDrop={e=>{e.preventDefault();if(!busy&&!demo)attachment.drop(e);}}
                 onSubmit={(event) => {
                   event.preventDefault();
                   send();
@@ -385,6 +398,7 @@ export default function App({ user, initial }: { user: User; initial: { settings
                 <textarea
                   ref={input}
                   id="message"
+                  onPaste={e=>{if(!busy&&!demo)attachment.paste(e);}}
                   placeholder="메시지를 입력하세요…"
                   value={draft}
                   disabled={busy || loading}
@@ -413,7 +427,9 @@ export default function App({ user, initial }: { user: User; initial: { settings
                   <button
                     className="send"
                     aria-label="메시지 보내기"
-                    disabled={!draft.trim() || busy || loading || (!demo && !status?.configured)}
+                    aria-describedby={!demo && !status?.configured ? 'chat-availability' : undefined}
+                    title={!demo && !status?.configured ? status?.message || 'AI 연결 확인 중' : '메시지 보내기'}
+                    disabled={(!draft.trim()&&!attachment.attachments.length) || busy || loading || attachment.loading || (!demo && !status?.configured)}
                     type="submit"
                   >
                     ↑
@@ -426,7 +442,8 @@ export default function App({ user, initial }: { user: User; initial: { settings
               </p>
             </div>
           </section>
-        ) : (
+        )}
+        {overlay && <AppDialog label={overlay==='settings'?'설정':overlay==='documents'?'문서 관리':'팀 자료·사용량'} onClose={()=>setOverlay(null)}>{overlay==='documents'?<Documents user={user}/>:overlay==='collaboration'?<Collaboration user={user}/>:(
           <section className="settings-page" aria-labelledby="settings-title">
             <div className="eyebrow">PREFERENCES</div>
             <h1 id="settings-title">설정</h1>
@@ -490,8 +507,9 @@ export default function App({ user, initial }: { user: User; initial: { settings
               <br />
               AI 연결 설정은 서버 관리자가 관리합니다. 데모 메시지는 저장하거나 AI에 전송하지 않습니다.
             </p>
+            {extraSettings}
           </section>
-        )}
+        )}</AppDialog>}
       </main>
     </div>
   );

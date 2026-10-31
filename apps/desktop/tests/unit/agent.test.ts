@@ -18,6 +18,21 @@ it('local analysis stores only metadata; start never implies real connection', a
   expect(JSON.stringify(agent.audit)).not.toContain('before'); expect(agent.start(id, 'agent').state).toBe('setup-required');
   expect(await readFile(join(root, 'a.ts'), 'utf8')).toBe('before');
 });
+it('turns a server API proposal into a version-bound diff and writes only after explicit approval',async()=>{
+  const request=vi.fn(async()=>({model:'gpt-6-astra',summary:'API proposal',changes:[{path:'a.ts',after:'from API'}]}));
+  const view=await agent.generate(id,'edit',['a.ts'],'change it',request);
+  expect(request.mock.calls).toHaveLength(1);expect(view).toMatchObject({source:'api',authentication:'server',model:'gpt-6-astra',state:'approval'});
+  expect(await readFile(join(root,'a.ts'),'utf8')).toBe('before');
+  const p=view.approval!;await agent.decide(id,'edit',p.id,p.digest,true);expect(await readFile(join(root,'a.ts'),'utf8')).toBe('from API');
+});
+it('refuses injected API file paths, Ask writes and a late API response after stop',async()=>{
+  let view=await agent.generate(id,'edit',['a.ts'],'change it',async()=>({model:'gpt-6-astra',summary:'bad',changes:[{path:'other.ts',after:'bad'}]}));
+  expect(view.state).toBe('failed');
+  view=await agent.generate(id,'ask',['a.ts'],'explain',async()=>({model:'gpt-6-astra',summary:'bad',changes:[{path:'a.ts',after:'bad'}]}));expect(view.state).toBe('failed');
+  let resolve!:(value:{model:string;summary:string;changes:[]})=>void;const pending=agent.generate(id,'edit',['a.ts'],'change it',()=>new Promise(r=>{resolve=r;}));
+  await vi.waitFor(()=>expect(resolve).toBeTypeOf('function'));agent.stop(id,'edit');resolve({model:'gpt-6-astra',summary:'late',changes:[]});await expect(pending).rejects.toThrow('중단');
+  expect(await readFile(join(root,'a.ts'),'utf8')).toBe('before');
+});
 it('Ask blocks proposals and all modes have no command capability', async () => {
   await expect(proposal('ask')).rejects.toThrow('모드');
   expect('terminalWrite' in agent).toBe(false); expect('exec' in agent).toBe(false);
