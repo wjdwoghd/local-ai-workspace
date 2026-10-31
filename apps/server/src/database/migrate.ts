@@ -8,9 +8,9 @@ export async function migrate(pool: oracledb.Pool) {
     let version = 0;
     try { version = (await rows<{ VERSION: number }>(c, "SELECT version FROM s2_control WHERE id = 1"))[0]?.VERSION ?? 0; }
     catch (e) { if ((e as { errorNum?: number }).errorNum !== 942) throw e; }
-    if (version === 4) return;
-    if (![0, 1, 2, 3].includes(version)) throw new Error("Unsupported schema version");
-    for (const file of ['001_auth.sql', '002_chat.sql', '003_search.sql', '004_collaboration.sql'].slice(version)) {
+    if (version === 5) return;
+    if (![0, 1, 2, 3, 4].includes(version)) throw new Error("Unsupported schema version");
+    for (const file of ['001_auth.sql', '002_chat.sql', '003_search.sql', '004_collaboration.sql', '005_chat_attachments.sql'].slice(version)) {
       const sql = await readFile(resolve("../../database/oracle/migrations", file), "utf8");
       for (const part of sql.replace(/^--.*$/gm, "").split(/^;\s*$/m)) {
         const statement = part.trim();

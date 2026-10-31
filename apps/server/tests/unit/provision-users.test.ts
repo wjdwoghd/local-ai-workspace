@@ -14,7 +14,7 @@ it('allows Korean names for login and keeps regular password creation policy', (
 it('creates only ordinary users with independently salted hashes, without plaintext persistence', async () => {
   const inserts: Record<string, string>[] = [];
   const execute = vi.fn(async (sql: string, binds?: Record<string, string>) => {
-    if (sql.startsWith('SELECT version')) return { rows: [{ VERSION: 4 }] };
+    if (sql.startsWith('SELECT version')) return { rows: [{ VERSION: 5 }] };
     if (sql.startsWith('INSERT')) inserts.push(binds!);
     return { rows: [] };
   });
@@ -28,7 +28,7 @@ it('creates only ordinary users with independently salted hashes, without plaint
   await expect(api.provisionUsers(['홍길동', '홍길동'], initial)).rejects.toMatchObject({ status: 400 });
 });
 it('rejects an existing account before any insertion, without password resets', async () => {
-  const execute = vi.fn(async (sql: string) => ({ rows: sql.startsWith('SELECT version') ? [{ VERSION: 4 }] : [{ ID: 'existing' }] }));
+  const execute = vi.fn(async (sql: string) => ({ rows: sql.startsWith('SELECT version') ? [{ VERSION: 5 }] : [{ ID: 'existing' }] }));
   const transaction = async <T>(work: (c: oracledb.Connection) => Promise<T>) => work({ execute } as unknown as oracledb.Connection);
   const settings = config({ SESSION_SECRET: token(), ORACLE_USER: 'fixture', ORACLE_PASSWORD: token(), ORACLE_CONNECT_STRING: 'fixture' });
   await expect(service({ transaction }, settings).provisionUsers(['홍길동'], 'a'.repeat(4))).rejects.toMatchObject({ status: 409 });

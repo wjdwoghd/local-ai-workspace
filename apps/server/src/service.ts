@@ -52,7 +52,7 @@ export function service(db: DB, config: Config) {
       for (const name of normalized) users.push({ id: randomUUID(), username: name, hash: await hashPassword(initialPassword) });
       return db.transaction(async c => {
         const [control] = await rows<{ VERSION: number }>(c, 'SELECT version FROM s2_control WHERE id = 1 FOR UPDATE');
-        if (control?.VERSION !== 4) throw new ApiError(409, '최신 마이그레이션을 먼저 적용하세요.');
+        if (control?.VERSION !== 5) throw new ApiError(409, '최신 마이그레이션을 먼저 적용하세요.');
         for (const user of users) {
           if ((await rows(c, 'SELECT id FROM s2_users WHERE username = :name', { name: user.username })).length) throw new ApiError(409, '이미 있는 계정이 포함되어 있습니다. 기존 계정은 변경하지 않았습니다.');
         }

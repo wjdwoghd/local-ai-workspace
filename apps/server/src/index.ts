@@ -21,7 +21,7 @@ async function main() {
   try {
     await database(pool).transaction(async c => {
       const [r] = await rows<{ VERSION: number }>(c, "SELECT version FROM s2_control WHERE id = 1");
-      if (r?.VERSION !== 4) throw new Error("Migration required");
+      if (r?.VERSION !== 5) throw new Error("Migration required");
     });
     await server.listen({ host: settings.host, port: settings.port });
     console.info(JSON.stringify({ event: "server_ready" }));

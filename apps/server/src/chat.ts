@@ -5,7 +5,7 @@ import type { openai } from './openai';
 import type { documents } from './documents';
 import type { Citation } from '../../../packages/shared-types/search';
 import type { collaboration } from './collaboration';
-export function chat(store: ReturnType<typeof chatStore>, provider: ReturnType<typeof openai>, docs?: Pick<ReturnType<typeof documents>, 'search' | 'verify'>, team?: Pick<ReturnType<typeof collaboration>, 'recordUsage'>) {
+export function chat(store: ReturnType<typeof chatStore>, provider: Pick<ReturnType<typeof openai>, 'validate' | 'stream'>, docs?: Pick<ReturnType<typeof documents>, 'search' | 'verify'>, team?: Pick<ReturnType<typeof collaboration>, 'recordUsage'>) {
   return {
     async start(input: ChatInput, credential?: string) {
       // Ownership always precedes configuration/provider checks.

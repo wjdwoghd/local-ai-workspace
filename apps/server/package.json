@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
+    "dev:local": "tsx watch src/local-index.ts",
+    "start:local": "node dist/local-index.js",
     "typecheck": "tsc --noEmit",
-    "build": "pnpm typecheck && tsup src/index.ts src/cli.ts src/local-proxy.ts src/document-worker.mjs --format esm --platform node --target node24 --clean",
+    "build": "pnpm typecheck && tsup src/index.ts src/local-index.ts src/cli.ts src/local-proxy.ts src/document-worker.mjs --format esm --platform node --target node24 --clean",
     "test": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration --testTimeout=120000 --hookTimeout=30000",
     "db:migrate": "tsx src/cli.ts migrate",

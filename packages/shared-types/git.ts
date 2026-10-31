@@ -1,11 +1,14 @@
 import { relativeWorkspacePath } from './workspace';
 import type { GitAction } from './collaboration';
 export interface GitChange { path: string; index: string; worktree: string; blocked: boolean; unstageAllowed: boolean }
-export interface GitView { root: string; branch: string; branches: string[]; head: string; changes: GitChange[]; remote: string | null; conflicts: boolean; github: string | null }
+export interface GitCommit { id:string; parents:string[]; subject:string; author:string; date:string; refs:string[] }
+export interface GitView { root: string; branch: string; branches: string[]; head: string; changes: GitChange[]; remote: string | null; conflicts: boolean; github: string | null; history:GitCommit[]; upstream:string; ahead:number; behind:number; branchHeads:Record<string,string> }
+export interface GitFileDiff { kind:'file-diff'; path:string; original:string; modified:string; label:string; diff:string }
+export interface GitCommitFiles { kind:'commit-files'; commit:string; files:{path:string;status:string;blocked:boolean}[] }
 export interface GitIntent { operation: GitAction; files: string[]; message: string; base: string; title: string; body: string }
 export interface GitApproval { token: string; digest: string; expires: number; intent: GitIntent; view: GitView; diff: string; commits: string }
-export type GitRequest = { action: 'status'; id: string } | { action: 'diff'; id: string; path: string } | { action: 'prepare'; id: string; intent: GitIntent } | { action: 'decide'; id: string; token: string; digest: string; accept: boolean };
-export type GitResult = GitView | GitApproval | { message: string; url?: string } | { diff: string };
+export type GitRequest = { action: 'status'; id: string } | {action:'connection';id:string} | { action: 'diff'; id: string; path: string; staged?:boolean } | {action:'commit-files';id:string;commit:string} | {action:'commit-diff';id:string;commit:string;path:string} | { action: 'prepare'; id: string; intent: GitIntent } | { action: 'decide'; id: string; token: string; digest: string; accept: boolean };
+export type GitResult = GitView | GitApproval | { message: string; url?: string } | GitFileDiff | GitCommitFiles;
 export function blockedGitPath(path: string) {
   return path.split('/').some(p => p.toLowerCase() !== '.env.example' && /^(?:\.env(?:\..*)?|\.git|\.aws|\.ssh|\.npmrc|\.netrc|credentials(?:\..*)?|secrets?(?:\..*)?|node_modules|dist|build|release|coverage|\.tools|\.next)$/i.test(p)) || /\.(?:pem|key|p12|pfx|exe|dll|msi|log|zip|7z|db|sqlite)$/i.test(path);
 }
@@ -20,16 +23,19 @@ export function gitIndexPath(value: unknown): asserts value is string {
 export function parseGitRequest(raw: unknown): GitRequest {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('잘못된 Git 요청');
   const o = raw as Record<string, unknown>;
-  const shapes: Record<string, string[]> = { status: ['id'], diff: ['id', 'path'], prepare: ['id', 'intent'], decide: ['id', 'token', 'digest', 'accept'] };
+  const shapes: Record<string, string[]> = { status: ['id'], connection:['id'], diff: ['id', 'path',...('staged'in o?['staged']:[])], 'commit-files':['id','commit'], 'commit-diff':['id','commit','path'], prepare: ['id', 'intent'], decide: ['id', 'token', 'digest', 'accept'] };
   if (typeof o.action !== 'string' || !Object.hasOwn(shapes, o.action) || Object.keys(o).sort().join() !== ['action', ...shapes[o.action]].sort().join() || typeof o.id !== 'string' || !/^[a-f0-9-]{36}$/.test(o.id)) throw new Error('잘못된 Git 요청');
-  if (o.action === 'diff') gitPath(o.path);
+  if (o.action === 'diff' || o.action === 'commit-diff') gitPath(o.path);
+  if('staged'in o && typeof o.staged!=='boolean')throw new Error('잘못된 diff 구분');
+  if(['commit-files','commit-diff'].includes(o.action as string)&&(typeof o.commit!=='string'||!/^[a-f0-9]{40,64}$/.test(o.commit)))throw new Error('잘못된 커밋');
   if (o.action === 'decide' && (typeof o.accept !== 'boolean' || typeof o.token !== 'string' || !/^[a-f0-9-]{36}$/.test(o.token) || typeof o.digest !== 'string' || !/^[a-f0-9]{64}$/.test(o.digest))) throw new Error('잘못된 승인');
   if (o.action === 'prepare') {
     const i = o.intent as GitIntent;
-    if (!i || Object.keys(i).sort().join() !== 'base,body,files,message,operation,title' || !['stage', 'unstage', 'commit', 'push', 'pull', 'pr'].includes(i.operation) || !Array.isArray(i.files) || i.files.length > 100 || new Set(i.files).size !== i.files.length) throw new Error('잘못된 Git 작업');
+    if (!i || Object.keys(i).sort().join() !== 'base,body,files,message,operation,title' || !['stage', 'unstage', 'commit', 'push', 'pull', 'pr','checkout','create-branch'].includes(i.operation) || !Array.isArray(i.files) || i.files.length > 100 || new Set(i.files).size !== i.files.length) throw new Error('잘못된 Git 작업');
     i.files.forEach(i.operation === 'unstage' ? gitIndexPath : gitPath);
     for (const k of ['message', 'base', 'title', 'body'] as const) if (typeof i[k] !== 'string' || i[k].length > (k === 'body' ? 8000 : 500) || i[k].includes('\0') || containsSecret(i[k])) throw new Error('입력 길이 또는 비밀정보를 확인하세요.');
     if (['stage', 'unstage'].includes(i.operation) && !i.files.length || i.operation === 'commit' && !i.message.trim() || i.operation === 'pr' && (!i.title.trim() || !/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,199}$/.test(i.base) || i.base.includes('..'))) throw new Error('파일·메시지·대상 브랜치를 선택하세요.');
+    if(['checkout','create-branch'].includes(i.operation)&&(!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,199}$/.test(i.base)||i.base.includes('..')))throw new Error('브랜치 이름을 확인하세요.');
   }
   return o as unknown as GitRequest;
 }

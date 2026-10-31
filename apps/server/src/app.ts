@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import { ATTACHMENT_LIMITS } from '../../../packages/shared-types/attachments';
 import { InputError, parseOperation } from "../../../packages/shared-types/auth";
 import { ApiError, audit } from "./security";
 import type { service } from "./service";
@@ -45,14 +46,14 @@ export function app(auth: Pick<ReturnType<typeof service>, "execute">, ai?: Retu
     const credential = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
     return { ok: true, data: await docs.upload(parseUpload(request.body), credential) };
   });
-  server.post('/api/chat', async (request, reply) => {
+  server.post('/api/chat', {bodyLimit:ATTACHMENT_LIMITS.httpBytes}, async (request, reply) => {
     const input = parseChat(request.body);
     if (!ai) throw new ApiError(503, 'AI 서비스 설정이 필요합니다.');
     const header = request.headers.authorization;
     const credential = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
     const run = await ai.start(input, credential);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
+    const timeout = setTimeout(() => controller.abort(), reasoningTimeout(input.reasoningEffort));
     const close = () => controller.abort();
     reply.raw.once('close', close);
     async function* body() {
@@ -67,3 +68,4 @@ export function app(auth: Pick<ReturnType<typeof service>, "execute">, ai?: Retu
   server.setNotFoundHandler((_request, reply) => reply.code(404).send({ ok: false, status: 404, message: "리소스를 찾을 수 없습니다." }));
   return server;
 }
+import { reasoningTimeout } from '../../../packages/shared-types/reasoning';

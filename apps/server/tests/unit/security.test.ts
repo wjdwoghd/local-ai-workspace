@@ -18,7 +18,7 @@ describe("security primitives and configuration", () => {
     expect(() => config(env)).toThrow(/HTTPS/);
     expect(config({ ...env, HTTPS_PROXY_CONFIRMED: "true" }).production).toBe(true);
     const valid = { ...env, HTTPS_PROXY_CONFIRMED: 'true' };
-    expect(config(valid)).toMatchObject({ openaiKey: '', models: [{ id: 'gpt-6-astra', label: 'Astra' }] });
+    expect(config(valid)).toMatchObject({ openaiKey: '', models: [{ id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol' }, { id: 'gpt-6-astra', label: 'Astra' }] });
     expect(() => config({ ...valid, OPENAI_ADDITIONAL_MODELS: '[{"id":"demo","label":"fake"}]' })).toThrow();
     expect(() => config({ ...valid, OPENAI_ADDITIONAL_MODELS: '[{"id":"gpt-6-astra","label":"duplicate"}]' })).toThrow();
     expect(() => config({ ...env, HTTPS_PROXY_CONFIRMED: "true", PORT: "0" })).toThrow();
